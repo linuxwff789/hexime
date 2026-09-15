@@ -72,6 +72,13 @@ class HeximeService : InputMethodService() {
             setTextColor(Color.parseColor("#607D8B"))
             setBackgroundColor(Color.parseColor("#ECEFF1"))
             setPadding(dp(10), dp(3), dp(10), dp(3))
+            // 点状态栏切换跟手延迟显示
+            isClickable = true
+            setOnClickListener {
+                val next = !HeximeSettings.showLatency(this@HeximeService)
+                HeximeSettings.setShowLatency(this@HeximeService, next)
+                updateStatus()
+            }
         }
         candidateBar = CandidateBar(this).apply {
             onSelect = { index -> onSelectCandidate(index) }

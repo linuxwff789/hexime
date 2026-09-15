@@ -24,9 +24,9 @@ object HeximeSettings {
             .apply()
     }
 
-    /** 是否在输入法状态栏显示实时「跟手延迟」。 */
+    /** 是否在输入法状态栏显示实时「跟手延迟」。开发调优期默认开启。 */
     fun showLatency(context: Context): Boolean =
-        prefs(context).getBoolean(KEY_SHOW_LATENCY, false)
+        prefs(context).getBoolean(KEY_SHOW_LATENCY, true)
 
     fun setShowLatency(context: Context, value: Boolean) {
         prefs(context).edit().putBoolean(KEY_SHOW_LATENCY, value).apply()
