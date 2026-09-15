@@ -144,6 +144,9 @@ class KeyboardView(context: Context) : LinearLayout(context) {
     override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
         super.onLayout(changed, left, top, right, bottom)
         for (key in keys) {
+            // 必须先把 key.rect 填成子视图自身的大小，再转换到本视图坐标系；
+            // 否则 rect 为空，命中测试永远失败。
+            key.view.getDrawingRect(key.rect)
             offsetDescendantRectToMyCoords(key.view, key.rect)
         }
     }
