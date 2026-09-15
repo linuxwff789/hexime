@@ -8,6 +8,7 @@ import android.os.Looper
 import android.provider.Settings
 import android.view.inputmethod.InputMethodManager
 import android.widget.Button
+import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.TextView
 import com.hexime.ime.data.RimeDataInstaller
@@ -59,8 +60,22 @@ class MainActivity : Activity() {
             },
         )
 
+        root.addView(TextView(this).apply {
+            text = "\n测试输入（点下面输入框调出键盘）："
+            setPadding(0, dp(40), 0, dp(8))
+        })
+        root.addView(
+            EditText(this).apply {
+                hint = "在这里输入…"
+                minLines = 2
+            },
+        )
+
         setContentView(root)
         refreshStatus()
+    }
+
+    private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
     }
 
     private fun refreshStatus() {
