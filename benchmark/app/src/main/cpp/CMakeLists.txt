@@ -21,10 +21,6 @@ set(CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake" ${CMAKE_MODULE_PATH})
 option(BUILD_SHARED_LIBS "" OFF)
 option(BUILD_TESTING "" OFF)
 
-# 关闭 librime 自带的插件自动发现（其 ENV 机制在 CI 下未生效），
-# 改为在下面显式集成 librime-lua，行为确定。
-set(ENV{RIME_PLUGINS} "")
-
 # 下载并编译 Boost（1.89.0），与 trime 一致
 include(Boost)
 
@@ -58,29 +54,26 @@ include(OpenccWorkarounds)
 
 include_directories("${CMAKE_SOURCE_DIR}/librime/include")
 
-# 编译 librime 本体（静态 rime-static）
+# 编译 librime 本体（静态 rime-static）。
+# 注意：Rime.cmake 会把 librime-lua / octagram / predict 以符号链接形式挂进
+# librime/plugins/，librime 自己会 add_subdirectory 它们并（默认）合并进 rime-static。
 include(Rime)
 
-# ---- 显式集成 librime-lua ----
-# 直接把 lua 插件对象编进 JNI .so，不依赖 librime 的插件合并。
-if(EXISTS "${CMAKE_SOURCE_DIR}/librime-lua")
-  if(NOT EXISTS "${CMAKE_SOURCE_DIR}/librime-lua/thirdparty")
-    file(CREATE_LINK "${CMAKE_SOURCE_DIR}/librime-lua-deps"
-         "${CMAKE_SOURCE_DIR}/librime-lua/thirdparty" COPY_ON_ERROR SYMBOLIC)
-  endif()
-  add_subdirectory("${CMAKE_SOURCE_DIR}/librime-lua" "${CMAKE_BINARY_DIR}/librime-lua")
-  target_include_directories(rime-lua-objs PRIVATE
-    "${CMAKE_SOURCE_DIR}/librime/src"
-    "${CMAKE_BINARY_DIR}/librime/src"
-    "${CMAKE_SOURCE_DIR}/librime/include"
-    "${CMAKE_SOURCE_DIR}/OpenCC/src"
-    "${CMAKE_BINARY_DIR}/OpenCC/src")
+# ---- 检测 lua 插件是否已合并进 rime-static ----
+set(HEXIME_LUA_OBJS "")
+if(TARGET rime-lua-objs)
   set(HEXIME_LUA_OBJS $<TARGET_OBJECTS:rime-lua-objs>)
-  message(STATUS "hexime: librime-lua enabled")
-else()
-  set(HEXIME_LUA_OBJS "")
-  message(STATUS "hexime: librime-lua NOT found, lua disabled")
 endif()
+get_target_property(_hib_rime_src rime-static SOURCES)
+set(HEXIME_LUA_MERGED FALSE)
+if(_hib_rime_src MATCHES "rime-lua-objs")
+  set(HEXIME_LUA_MERGED TRUE)
+endif()
+set(_hib_diag "rime-lua-objs target: ${HEXIME_LUA_OBJS}\n")
+string(APPEND _hib_diag "lua merged into rime-static: ${HEXIME_LUA_MERGED}\n")
+string(APPEND _hib_diag "rime-static sources:\n${_hib_rime_src}\n")
+file(WRITE "${CMAKE_BINARY_DIR}/hexime_diag.txt" "${_hib_diag}")
+message(STATUS "hexime: lua merged=${HEXIME_LUA_MERGED}")
 
 # hexime 基准 JNI
 add_subdirectory(bench)

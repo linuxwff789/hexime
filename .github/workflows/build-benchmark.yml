@@ -66,6 +66,12 @@ jobs:
         working-directory: benchmark
         run: gradle :app:assembleRelease --no-daemon --stacktrace --max-workers="$(nproc)"
 
+      - name: Show CMake diagnostics
+        if: always()
+        working-directory: benchmark
+        run: |
+          find app/.cxx -name hexime_diag.txt -exec sh -c 'echo "=== $1 ==="; cat "$1"' _ {} \; || true
+
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
