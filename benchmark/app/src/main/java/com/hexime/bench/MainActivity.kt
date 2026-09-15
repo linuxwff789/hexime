@@ -34,8 +34,13 @@ class MainActivity : Activity() {
         ),
         SchemaCase(
             id = "openfly",
-            label = "小鹤音形 openfly",
+            label = "小鹤音形 openfly (无 lua)",
             // 来自 openfly 码表：你=n 好=hc 中国=vsg 输入法=urf 小鹤=xnhe 阿=aaek
+            sequences = listOf("n", "hc", "vsg", "urf", "xnhe", "aaek"),
+        ),
+        SchemaCase(
+            id = "openfly_lua",
+            label = "小鹤音形 openfly_lua (+lua filter)",
             sequences = listOf("n", "hc", "vsg", "urf", "xnhe", "aaek"),
         ),
     )

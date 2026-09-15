@@ -19,25 +19,16 @@
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
 // ---------------------------------------------------------------------------
-// librime 以静态库链接。若插件模块已并入 rime-static，链接器可能会因
-// 无人引用而丢弃它们；此时可定义 HEXIME_FORCE_LINK_PLUGINS 强制链接。
-//
-// 注意：目前基准只需 luna_pinyin，不依赖 lua/octagram/predict 插件，
-// 而合并后的 rime-static 里并未包含这些插件对象，强制引用会链接失败，
-// 因此默认关闭。后续若要用到插件（如 octagram 语法），再打开并确保
-// 插件已并入 rime-static。
+// librime-lua 以对象形式链接进本 .so。定义 HEXIME_FORCE_LINK_PLUGINS 时
+// 强制引用 lua 模块，确保其被加载。
 // ---------------------------------------------------------------------------
 #ifdef HEXIME_FORCE_LINK_PLUGINS
 extern "C" {
 void rime_require_module_lua();
-void rime_require_module_octagram();
-void rime_require_module_predict();
 }
 
 static void force_link_modules() {
   rime_require_module_lua();
-  rime_require_module_octagram();
-  rime_require_module_predict();
 }
 #else
 static void force_link_modules() {}
@@ -125,6 +116,11 @@ Java_com_hexime_bench_RimeBench_nativeInit(JNIEnv* env, jclass, jstring j_shared
   traits.distribution_code_name = "hexime";
   traits.distribution_version = dist_version.c_str();
   traits.app_name = "rime.hexime_bench";
+#ifdef HEXIME_FORCE_LINK_PLUGINS
+  // 显式加载 lua 模块（静态链接下不会被自动加入默认模块组）
+  static const char* kModules[] = {"lua", nullptr};
+  traits.modules = kModules;
+#endif
 
   rime->setup(&traits);
   rime->initialize(&traits);

@@ -100,7 +100,33 @@ translator:
   enable_user_dict: false
 YAML
 
-# default.yaml 精简 schema_list；同时列出拼音与小鹤音形
+# ---- 测 librime-lua 开销：同一个码表，仅多一个 lua filter ----
+mkdir -p "$DEST/lua"
+cat > "$DEST/lua/bench_filter.lua" <<'LUA'
+-- 用于测量 librime-lua 的固定调用开销：遍历候选并原样输出
+return function(input)
+  for cand in input:iter() do
+    yield(cand)
+  end
+end
+LUA
+
+python3 - "$DEST/openfly.schema.yaml" "$DEST/openfly_lua.schema.yaml" <<'PY'
+import sys
+
+src, dst = sys.argv[1], sys.argv[2]
+text = open(src, encoding="utf-8").read()
+text = text.replace("schema_id: openfly", "schema_id: openfly_lua")
+text = text.replace("name: 开源小鹤(基准)", "name: 开源小鹤(基准+lua)")
+text = text.replace(
+    "  translators:\n    - table_translator\n",
+    "  translators:\n    - table_translator\n  filters:\n    - lua_filter@*bench_filter\n",
+)
+open(dst, "w", encoding="utf-8").write(text)
+print("wrote openfly_lua.schema.yaml")
+PY
+
+# default.yaml 精简 schema_list；列出拼音、小鹤(无lua)、小鹤(+lua)
 python3 - "$DEST/default.yaml" <<'PY'
 import re
 import sys
@@ -109,11 +135,11 @@ path = sys.argv[1]
 text = open(path, encoding="utf-8").read()
 patched = re.sub(
     r"schema_list:\n(?:[ \t]*-[ \t]*schema:.*\n)+",
-    "schema_list:\n  - schema: luna_pinyin\n  - schema: openfly\n",
+    "schema_list:\n  - schema: luna_pinyin\n  - schema: openfly\n  - schema: openfly_lua\n",
     text,
 )
 open(path, "w", encoding="utf-8").write(patched)
-print("schema_list ->", "luna_pinyin, openfly" if patched != text else "unchanged")
+print("schema_list ->", "luna_pinyin, openfly, openfly_lua" if patched != text else "unchanged")
 PY
 
 # 合并本地额外方案
