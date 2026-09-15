@@ -2,16 +2,22 @@ package com.hexime.ime
 
 import android.graphics.Color
 import android.inputmethodservice.InputMethodService
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.os.VibratorManager
 import android.util.Log
 import android.util.TypedValue
+import android.view.Choreographer
 import android.view.Gravity
 import android.view.KeyEvent
 import android.view.View
 import android.view.inputmethod.EditorInfo
 import android.widget.LinearLayout
 import android.widget.TextView
+import com.hexime.ime.data.HeximeSettings
 import com.hexime.ime.data.RimeDataInstaller
 import com.hexime.ime.engine.InputEngine
 import com.hexime.ime.engine.RimeEngine
@@ -38,6 +44,18 @@ class HeximeService : InputMethodService() {
 
     private var shiftOn = false
     private var asciiMode = false
+
+    /** 最近一次按键到下一帧的耗时（ms），用于评估「跟手性」。 */
+    private var latencyMs = 0.0
+
+    private val vibrator: Vibrator? by lazy {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            getSystemService(VibratorManager::class.java)?.defaultVibrator
+        } else {
+            @Suppress("DEPRECATION")
+            getSystemService(Vibrator::class.java)
+        }
+    }
 
     override fun onCreate() {
         super.onCreate()
@@ -126,6 +144,8 @@ class HeximeService : InputMethodService() {
 
     private fun onKeyAction(action: KeyAction) {
         if (!ready) return
+        haptic()
+        val t0 = System.nanoTime()
         when (action) {
             is KeyAction.Sym -> {
                 val handled = engine.processKey(action.keySym, action.mask)
@@ -164,6 +184,7 @@ class HeximeService : InputMethodService() {
             keyboardView?.setShift(false)
         }
         refresh()
+        measureLatency(t0)
     }
 
     private fun onSelectCandidate(index: Int) {
@@ -190,7 +211,33 @@ class HeximeService : InputMethodService() {
         val bar = statusView ?: return
         bar.text = when {
             !ready -> "部署中…（首次会编译词库）"
-            else -> "${engine.currentSchema()}  ·  ${if (asciiMode) "英" else "中"}  ·  librime ${engine.version()}"
+            else -> buildString {
+                append(
+                    "${engine.currentSchema()}  ·  ${if (asciiMode) "英" else "中"}" +
+                        "  ·  librime ${engine.version()}",
+                )
+                if (HeximeSettings.showLatency(this@HeximeService)) {
+                    append("  ·  跟手 %.1f ms".format(latencyMs))
+                }
+            }
+        }
+    }
+
+    private fun haptic() {
+        val percent = HeximeSettings.vibrationPercent(this)
+        if (percent <= 0) return
+        val v = vibrator ?: return
+        if (!v.hasVibrator()) return
+        val amplitude = (percent / 100.0 * 255).toInt().coerceIn(1, 255)
+        runCatching { v.vibrate(VibrationEffect.createOneShot(12L, amplitude)) }
+    }
+
+    /** 记录「按键 -> 下一帧渲染」的耗时，作为跟手性的量化指标。 */
+    private fun measureLatency(t0: Long) {
+        if (!HeximeSettings.showLatency(this)) return
+        Choreographer.getInstance().postFrameCallback { frameTimeNanos ->
+            latencyMs = (frameTimeNanos - t0) / 1_000_000.0
+            updateStatus()
         }
     }
 
