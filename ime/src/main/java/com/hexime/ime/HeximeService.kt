@@ -129,9 +129,9 @@ class HeximeService : InputMethodService() {
         when (action) {
             is KeyAction.Sym -> {
                 val handled = engine.processKey(action.keySym, action.mask)
-                // 空格在无组合串时引擎不处理，则直接输入一个空格
-                if (!handled && action.keySym == InputEngine.KEY_SPACE) {
-                    currentInputConnection?.commitText(" ", 1)
+                // 引擎未处理且是可打印 ASCII，则直接上屏（数字/符号/英文）
+                if (!handled && action.keySym in 0x20..0x7E) {
+                    currentInputConnection?.commitText(action.keySym.toChar().toString(), 1)
                 }
             }
             KeyAction.Backspace -> {
@@ -142,6 +142,9 @@ class HeximeService : InputMethodService() {
             KeyAction.Enter -> {
                 val handled = engine.processKey(InputEngine.KEY_RETURN, 0)
                 if (!handled) sendDownUpKeyEvents(KeyEvent.KEYCODE_ENTER)
+            }
+            KeyAction.ToggleSymbols -> {
+                keyboardView?.toggleSymbols()
             }
             KeyAction.Shift -> {
                 shiftOn = !shiftOn
