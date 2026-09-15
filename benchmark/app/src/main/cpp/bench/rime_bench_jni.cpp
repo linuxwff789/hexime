@@ -23,9 +23,9 @@
 // 强制引用 lua 模块，确保其被加载。
 // ---------------------------------------------------------------------------
 #ifdef HEXIME_FORCE_LINK_PLUGINS
-extern "C" {
+// 注意：rime_require_module_lua 是 C++ 链接（定义时无 extern "C"），
+// 因此这里不能包在 extern "C" 里，否则会去找未修饰符号而链接失败。
 void rime_require_module_lua();
-}
 
 static void force_link_modules() {
   rime_require_module_lua();
