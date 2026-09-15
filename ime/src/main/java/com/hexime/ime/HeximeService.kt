@@ -7,6 +7,7 @@ import android.os.Looper
 import android.util.Log
 import android.util.TypedValue
 import android.view.Gravity
+import android.view.KeyEvent
 import android.view.View
 import android.view.inputmethod.EditorInfo
 import android.widget.LinearLayout
@@ -116,7 +117,7 @@ class HeximeService : InputMethodService() {
 
     private fun ensureSession() {
         if (!ready) return
-        if (engine.currentSchema().isEmpty()) {
+        if (!engine.hasSession()) {
             engine.createSession(schemas[schemaIndex])
         }
     }
@@ -126,9 +127,22 @@ class HeximeService : InputMethodService() {
     private fun onKeyAction(action: KeyAction) {
         if (!ready) return
         when (action) {
-            is KeyAction.Sym -> engine.processKey(action.keySym, action.mask)
-            KeyAction.Backspace -> engine.processKey(InputEngine.KEY_BACKSPACE, 0)
-            KeyAction.Enter -> engine.processKey(InputEngine.KEY_RETURN, 0)
+            is KeyAction.Sym -> {
+                val handled = engine.processKey(action.keySym, action.mask)
+                // 空格在无组合串时引擎不处理，则直接输入一个空格
+                if (!handled && action.keySym == InputEngine.KEY_SPACE) {
+                    currentInputConnection?.commitText(" ", 1)
+                }
+            }
+            KeyAction.Backspace -> {
+                val handled = engine.processKey(InputEngine.KEY_BACKSPACE, 0)
+                // 没有组合串时交给编辑器删除字符
+                if (!handled) currentInputConnection?.deleteSurroundingText(1, 0)
+            }
+            KeyAction.Enter -> {
+                val handled = engine.processKey(InputEngine.KEY_RETURN, 0)
+                if (!handled) sendDownUpKeyEvents(KeyEvent.KEYCODE_ENTER)
+            }
             KeyAction.Shift -> {
                 shiftOn = !shiftOn
                 keyboardView?.setShift(shiftOn)

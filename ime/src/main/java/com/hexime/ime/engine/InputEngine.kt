@@ -26,6 +26,9 @@ interface InputEngine {
     /** 创建输入会话并选择方案。schemaId 为 null 时用默认方案。 */
     fun createSession(schemaId: String?): Boolean
 
+    /** 是否已有可用会话。 */
+    fun hasSession(): Boolean
+
     fun destroySession()
 
     /** 处理一次按键。keySym 为 X11 keysym，mask 为修饰键位。 */

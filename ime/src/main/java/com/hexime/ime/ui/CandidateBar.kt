@@ -4,7 +4,6 @@ import android.content.Context
 import android.graphics.Color
 import android.util.TypedValue
 import android.view.Gravity
-import android.view.View
 import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -16,6 +15,7 @@ class CandidateBar(context: Context) : HorizontalScrollView(context) {
     private val row = LinearLayout(context).apply {
         orientation = LinearLayout.HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL
+        minimumHeight = dp(46)
     }
 
     var onSelect: ((Int) -> Unit)? = null
@@ -30,7 +30,8 @@ class CandidateBar(context: Context) : HorizontalScrollView(context) {
     }
 
     fun setCandidates(candidates: List<Candidate>) {
-        removeAllViews()
+        // 注意：只清空 row 的子视图，不能 removeAllViews()，
+        // 否则会把 row 本身从 HorizontalScrollView 里移除。
         row.removeAllViews()
         if (candidates.isEmpty()) return
 
@@ -50,7 +51,6 @@ class CandidateBar(context: Context) : HorizontalScrollView(context) {
     }
 
     fun clear() {
-        removeAllViews()
         row.removeAllViews()
     }
 

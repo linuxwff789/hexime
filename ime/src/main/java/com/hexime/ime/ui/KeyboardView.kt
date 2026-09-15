@@ -57,6 +57,7 @@ class KeyboardView(context: Context) : LinearLayout(context) {
         addFixedKey(row4, "空格", 4f) { KeyAction.Sym(InputEngine.KEY_SPACE) }
         addFixedKey(row4, "。", 1f) { KeyAction.Sym(InputEngine.KEY_PERIOD) }
         addFixedKey(row4, "↵", 1.5f) { KeyAction.Enter }
+        addView(row4)
     }
 
     private fun letterRow(chars: List<Char>): LinearLayout {

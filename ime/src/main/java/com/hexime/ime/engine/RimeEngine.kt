@@ -34,6 +34,8 @@ class RimeEngine : InputEngine {
         return true
     }
 
+    override fun hasSession(): Boolean = sessionId != 0L
+
     override fun destroySession() {
         if (sessionId != 0L) {
             RimeNative.destroySession(sessionId)
