@@ -22,6 +22,9 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+      ANDROID_HOME: /usr/local/lib/android/sdk
     steps:
       - uses: actions/checkout@v4
 
@@ -32,17 +35,13 @@ jobs:
           java-version: '17'
 
       - name: Install SDK / NDK / CMake
-        env:
-          ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
-          ANDROID_HOME: /usr/local/lib/android/sdk
         run: |
-          # runner 已预装 cmdline-tools 与 sdkmanager，直接使用即可
+          # runner 已预装 cmdline-tools，但未加入 PATH，这里手动定位
+          CMDLINE=$(ls -d "$ANDROID_SDK_ROOT"/cmdline-tools/*/bin 2>/dev/null | sort -V | tail -1)
+          export PATH="$CMDLINE:$ANDROID_SDK_ROOT/platform-tools:$PATH"
+          which sdkmanager
           yes | sdkmanager --licenses > /dev/null 2>&1 || true
-          sdkmanager --install \
-            "platforms;android-35" \
-            "build-tools;35.0.0" \
-            "ndk;28.0.13004108" \
-            "cmake;3.31.6"
+          sdkmanager --install "platforms;android-35" "build-tools;35.0.0" "ndk;28.0.13004108" "cmake;3.31.6"
 
       - name: Prepare librime native sources
         run: bash scripts/prepare-native.sh
