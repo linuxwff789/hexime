@@ -74,6 +74,9 @@ class KeyboardView(context: Context) : LinearLayout(context) {
         build()
     }
 
+    private fun label(ch: Char): String =
+        if (shift) ch.uppercaseChar().toString() else ch.toString()
+
     // ---------------------------------------------------------------- 多点触控
 
     override fun onInterceptTouchEvent(ev: MotionEvent): Boolean = true
