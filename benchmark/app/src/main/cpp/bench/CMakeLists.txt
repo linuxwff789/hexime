@@ -14,3 +14,6 @@ target_compile_options(hexime_bench PRIVATE "-ffile-prefix-map=${CMAKE_SOURCE_DI
 
 # librime 通过 log 库输出，benchmark 用 logcat
 target_link_libraries(hexime_bench log)
+
+# 若确认插件（lua/octagram/predict）已并入 rime-static，可打开此项强制链接：
+# target_compile_definitions(hexime_bench PRIVATE HEXIME_FORCE_LINK_PLUGINS)

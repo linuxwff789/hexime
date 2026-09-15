@@ -19,9 +19,15 @@
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
 // ---------------------------------------------------------------------------
-// librime 以静态库链接，插件模块若不被引用会被链接器丢弃。
-// 显式声明并调用 require 函数强制链接（与 trime 做法一致）。
+// librime 以静态库链接。若插件模块已并入 rime-static，链接器可能会因
+// 无人引用而丢弃它们；此时可定义 HEXIME_FORCE_LINK_PLUGINS 强制链接。
+//
+// 注意：目前基准只需 luna_pinyin，不依赖 lua/octagram/predict 插件，
+// 而合并后的 rime-static 里并未包含这些插件对象，强制引用会链接失败，
+// 因此默认关闭。后续若要用到插件（如 octagram 语法），再打开并确保
+// 插件已并入 rime-static。
 // ---------------------------------------------------------------------------
+#ifdef HEXIME_FORCE_LINK_PLUGINS
 extern "C" {
 void rime_require_module_lua();
 void rime_require_module_octagram();
@@ -33,6 +39,9 @@ static void force_link_modules() {
   rime_require_module_octagram();
   rime_require_module_predict();
 }
+#else
+static void force_link_modules() {}
+#endif
 
 static RimeApi* g_rime = nullptr;
 static bool g_initialized = false;

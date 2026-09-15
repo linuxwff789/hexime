@@ -64,7 +64,7 @@ jobs:
 
       - name: Build release APK
         working-directory: benchmark
-        run: gradle :app:assembleRelease --no-daemon --stacktrace
+        run: gradle :app:assembleRelease --no-daemon --stacktrace --max-workers="$(nproc)"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
