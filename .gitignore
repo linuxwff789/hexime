@@ -1,0 +1,26 @@
+# Gradle / Android
+.gradle/
+build/
+local.properties
+*.iml
+.idea/
+.cxx/
+
+# native / generated
+benchmark/app/src/main/cpp/librime/
+benchmark/app/src/main/cpp/OpenCC/
+benchmark/app/src/main/cpp/snappy/
+benchmark/app/src/main/cpp/librime-lua/
+benchmark/app/src/main/cpp/librime-lua-deps/
+benchmark/app/src/main/cpp/librime-octagram/
+benchmark/app/src/main/cpp/librime-predict/
+benchmark/app/src/main/cpp/cmake/
+benchmark/app/src/main/cpp/boost/
+benchmark/app/src/main/cpp/boost-*.tar.xz
+benchmark/app/src/main/assets/rime/
+
+# misc
+*.keystore
+*.apk
+*.aab
+.DS_Store
