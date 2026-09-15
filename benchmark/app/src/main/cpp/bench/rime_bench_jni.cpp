@@ -116,11 +116,6 @@ Java_com_hexime_bench_RimeBench_nativeInit(JNIEnv* env, jclass, jstring j_shared
   traits.distribution_code_name = "hexime";
   traits.distribution_version = dist_version.c_str();
   traits.app_name = "rime.hexime_bench";
-#ifdef HEXIME_FORCE_LINK_PLUGINS
-  // 显式加载 lua 模块（静态链接下不会被自动加入默认模块组）
-  static const char* kModules[] = {"lua", nullptr};
-  traits.modules = kModules;
-#endif
 
   rime->setup(&traits);
   rime->initialize(&traits);
