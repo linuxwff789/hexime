@@ -1,7 +1,7 @@
 package com.hexime.ime.engine
 
 /** librime C API 的 JNI 绑定。方法名与 cpp JNI 中的 Java_..._RimeNative_* 对应。 */
-internal object RimeNative {
+object RimeNative {
 
     init {
         System.loadLibrary("hexime_rime")
