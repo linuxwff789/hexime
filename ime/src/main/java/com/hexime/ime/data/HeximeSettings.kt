@@ -8,9 +8,15 @@ object HeximeSettings {
     private const val PREF = "hexime_settings"
     private const val KEY_VIBRATION_PERCENT = "vibration_percent"
     private const val KEY_SHOW_LATENCY = "show_latency"
+    private const val KEY_KEYBOARD_HEIGHT = "keyboard_height_dp"
 
     /** 震动强度百分比 0..100，0 = 关闭。 */
     const val VIBRATION_DEFAULT = 30
+
+    /** 键盘按键高度（dp）。 */
+    const val KEYBOARD_HEIGHT_DEFAULT = 46
+    const val KEYBOARD_HEIGHT_MIN = 34
+    const val KEYBOARD_HEIGHT_MAX = 72
 
     private fun prefs(context: Context) =
         context.getSharedPreferences(PREF, Context.MODE_PRIVATE)
@@ -30,5 +36,16 @@ object HeximeSettings {
 
     fun setShowLatency(context: Context, value: Boolean) {
         prefs(context).edit().putBoolean(KEY_SHOW_LATENCY, value).apply()
+    }
+
+    /** 键盘按键高度（dp）。 */
+    fun keyboardHeightDp(context: Context): Int =
+        prefs(context).getInt(KEY_KEYBOARD_HEIGHT, KEYBOARD_HEIGHT_DEFAULT)
+            .coerceIn(KEYBOARD_HEIGHT_MIN, KEYBOARD_HEIGHT_MAX)
+
+    fun setKeyboardHeightDp(context: Context, value: Int) {
+        prefs(context).edit()
+            .putInt(KEY_KEYBOARD_HEIGHT, value.coerceIn(KEYBOARD_HEIGHT_MIN, KEYBOARD_HEIGHT_MAX))
+            .apply()
     }
 }

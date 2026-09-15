@@ -110,6 +110,18 @@ translator:
   enable_sentence: false
   enable_completion: false
   enable_user_dict: false
+
+# 次选：组合中按 . 直接上屏第 2 个候选（等价于按数字 2）
+key_binder:
+  bindings:
+    - { when: composing, accept: period, send: "2" }
+YAML
+
+# 拼音方案也加上同样的次选绑定
+cat > "$DEST/luna_pinyin.custom.yaml" <<'YAML'
+patch:
+  key_binder/bindings/+:
+    - { when: composing, accept: period, send: "2" }
 YAML
 
 SCHEMAS="openfly,luna_pinyin"

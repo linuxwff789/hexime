@@ -14,6 +14,7 @@ import android.view.MotionEvent
 import android.view.View
 import android.widget.LinearLayout
 import android.widget.TextView
+import com.hexime.ime.data.HeximeSettings
 import com.hexime.ime.engine.InputEngine
 
 /** 按键动作。 */
@@ -42,6 +43,10 @@ class KeyboardView(context: Context) : LinearLayout(context) {
 
     private var shift = false
     private var symbolMode = false
+
+    /** 按键高度（像素），来自设置，可在设置页调节。 */
+    private val keyHeightPx: Int =
+        (HeximeSettings.keyboardHeightDp(context) * resources.displayMetrics.density).toInt()
 
     private val letterViews = LinkedHashMap<Char, TextView>()
 
@@ -249,12 +254,12 @@ class KeyboardView(context: Context) : LinearLayout(context) {
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 19f)
             setTextColor(Color.parseColor("#212121"))
             gravity = Gravity.CENTER
-            setPadding(0, dp(12), 0, dp(12))
+            setPadding(0, 0, 0, 0)
             background = keyBackground()
             // 关键：不设置 OnClickListener，触摸统一由键盘层处理
             isClickable = false
         }
-        val lp = LayoutParams(0, LayoutParams.WRAP_CONTENT, weight)
+        val lp = LayoutParams(0, keyHeightPx, weight)
         lp.marginStart = dp(3)
         lp.marginEnd = dp(3)
         row.addView(tv, lp)

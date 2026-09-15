@@ -100,8 +100,17 @@ class HeximeService : InputMethodService() {
         refresh()
     }
 
+    /** 当前已应用的按键高度，用于设置变化时重建键盘。 */
+    private var appliedKeyHeight = -1
+
     override fun onStartInputView(info: EditorInfo?, restarting: Boolean) {
         super.onStartInputView(info, restarting)
+        // 设置里改了键盘高度则重建输入视图
+        val height = HeximeSettings.keyboardHeightDp(this)
+        if (height != appliedKeyHeight) {
+            appliedKeyHeight = height
+            setInputView(onCreateInputView())
+        }
         ensureSession()
         refresh()
     }

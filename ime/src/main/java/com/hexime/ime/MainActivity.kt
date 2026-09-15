@@ -85,6 +85,34 @@ class MainActivity : Activity() {
             setOnClickListener { previewVibration(HeximeSettings.vibrationPercent(this@MainActivity)) }
         })
 
+        // ---- 键盘高度 ----
+        root.addView(sectionTitle("\n键盘高度（下次弹出键盘生效）"))
+        val heightValue = TextView(this).apply { textSize = 15f }
+        root.addView(heightValue)
+        fun updateHeightLabel(progress: Int) {
+            heightValue.text =
+                "键盘高度：${progress + HeximeSettings.KEYBOARD_HEIGHT_MIN} dp"
+        }
+        val heightSeek = SeekBar(this).apply {
+            max = HeximeSettings.KEYBOARD_HEIGHT_MAX - HeximeSettings.KEYBOARD_HEIGHT_MIN
+            progress = HeximeSettings.keyboardHeightDp(this@MainActivity) -
+                HeximeSettings.KEYBOARD_HEIGHT_MIN
+        }
+        heightSeek.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(sb: SeekBar?, value: Int, fromUser: Boolean) {
+                HeximeSettings.setKeyboardHeightDp(
+                    this@MainActivity,
+                    value + HeximeSettings.KEYBOARD_HEIGHT_MIN,
+                )
+                updateHeightLabel(value)
+            }
+
+            override fun onStartTrackingTouch(sb: SeekBar?) {}
+            override fun onStopTrackingTouch(sb: SeekBar?) {}
+        })
+        root.addView(heightSeek)
+        updateHeightLabel(heightSeek.progress)
+
         // ---- 跟手延迟显示 ----
         root.addView(CheckBox(this).apply {
             text = "在输入法状态栏显示「跟手延迟」(按键→下一帧)"
