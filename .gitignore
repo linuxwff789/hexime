@@ -24,3 +24,6 @@ benchmark/app/src/main/assets/rime/
 *.apk
 *.aab
 .DS_Store
+
+# 本地/受版权保护的额外码表，不入库
+benchmark/rime-extra/

@@ -20,12 +20,24 @@ class MainActivity : Activity() {
     private val main = Handler(Looper.getMainLooper())
     private val sb = StringBuilder()
 
-    private val schemaId = "luna_pinyin"
+    /** 每个方案：id + 用于测延迟的按键序列 */
+    private data class SchemaCase(val id: String, val label: String, val sequences: List<String>)
 
-    /** 测试用按键序列：越靠后越长，观察延迟是否随长度退化 */
-    private val testSequences = listOf(
-        "ni", "nihao", "zhongguo", "shurufa",
-        "woshiyigexiaohuozi", "jintiantianqizenmeyang",
+    private val cases = listOf(
+        SchemaCase(
+            id = "luna_pinyin",
+            label = "拼音 luna_pinyin",
+            sequences = listOf(
+                "ni", "nihao", "zhongguo", "shurufa",
+                "woshiyigexiaohuozi", "jintiantianqizenmeyang",
+            ),
+        ),
+        SchemaCase(
+            id = "openfly",
+            label = "小鹤音形 openfly",
+            // 来自 openfly 码表：你=n 好=hc 中国=vsg 输入法=urf 小鹤=xnhe 阿=aaek
+            sequences = listOf("n", "hc", "vsg", "urf", "xnhe", "aaek"),
+        ),
     )
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -70,7 +82,7 @@ class MainActivity : Activity() {
         val userDir = File(filesDir, "rime/user").apply { mkdirs() }
         val logDir = File(filesDir, "rime/log").apply { mkdirs() }
         copyAssets("rime", sharedDir)
-        log("rift data -> ${sharedDir.absolutePath} (${sharedDir.listFiles()?.size ?: 0} files)")
+        log("rime data -> ${sharedDir.absolutePath} (${sharedDir.listFiles()?.size ?: 0} files)")
 
         val t0 = System.nanoTime()
         val ok = RimeBench.nativeInit(
@@ -84,32 +96,44 @@ class MainActivity : Activity() {
         log("--- init: ok=$ok, ${"%.1f".format(initMs)} ms, pss=${pssKb()} KB")
 
         val t1 = System.nanoTime()
-        val deployed = RimeBench.nativeDeploy(true)
+        // fullCheck=false：已部署过则秒返（真实 App 启动行为）；首次安装则完整部署
+        val deployed = RimeBench.nativeDeploy(false)
         val deployMs = (System.nanoTime() - t1) / 1_000_000.0
-        log("--- deploy: started=$deployed, ${"%.1f".format(deployMs)} ms, pss=${pssKb()} KB")
+        log("--- deploy(auto): started=$deployed, ${"%.1f".format(deployMs)} ms, pss=${pssKb()} KB")
 
-        val sid = RimeBench.nativeCreateSession(schemaId)
-        log("--- session: $sid (schema=$schemaId), pss=${pssKb()} KB")
-        if (sid == 0L) return
+        for (case in cases) {
+            runCase(case)
+        }
+
+        RimeBench.nativeFinalize()
+        log("--- after finalize: pss=${pssKb()} KB")
+    }
+
+    private fun runCase(case: SchemaCase) {
+        val sid = RimeBench.nativeCreateSession(case.id)
+        log("")
+        log("=========== ${case.label} (${case.id}) ===========")
+        log("--- session: $sid, pss=${pssKb()} KB")
+        if (sid == 0L) {
+            log("!! 会话创建失败（方案是否已部署？）")
+            return
+        }
 
         // 候选质量抽查
-        for (k in listOf("nihao", "zhongguo")) {
+        for (k in case.sequences.take(4)) {
             RimeBench.nativeClearComposition(sid)
             RimeBench.nativeSimulateKeys(sid, k)
             log("candidates[$k] = ${RimeBench.nativeGetCandidates(sid).take(5).joinToString(" | ")}")
         }
 
-        // 按键延迟
         log("--- latency (per key, ms) ---")
-        for (seq in testSequences) {
+        for (seq in case.sequences) {
             val r = RimeBench.nativeBenchLatency(sid, seq, 200)
             log("%-26s avg=%.2f p50=%.2f p95=%.2f p99=%.2f max=%.2f"
                 .format(seq, r[0], r[1], r[2], r[3], r[4]))
         }
-        log("--- after bench: pss=${pssKb()} KB")
-
+        log("--- after ${case.id}: pss=${pssKb()} KB")
         RimeBench.nativeDestroySession(sid)
-        RimeBench.nativeFinalize()
     }
 
     private fun copyAssets(assetDir: String, dest: File) {
