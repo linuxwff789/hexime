@@ -1,17 +1,30 @@
 #!/usr/bin/env bash
-# 下载 RIME 方案数据到 benchmark 的 assets，供基准 App 部署使用。
+# 下载 RIME 方案数据到指定 assets 目录。
 #
-# 包含：
-#   - luna_pinyin（拼音）+ essay（预置词频）+ stroke（反查）
-#   - openfly（开源小鹤音形码表，MIT），配一个去 lua 的最小 schema
+# 用法: bash scripts/stage-rime-data.sh [目标 assets/rime 目录] [--bench]
+#   默认: benchmark/app/src/main/assets/rime --bench
 #
-# 如需额外方案，把文件放到 benchmark/rime-extra/ 下，会被合并进来。
+# --bench 会额外生成「+lua filter」对比方案（仅基准用）。
+# 默认（正式 App）包含：小鹤音形 openfly、拼音 luna_pinyin、词频 essay、反查 stroke。
 
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-DEST="$ROOT/benchmark/app/src/main/assets/rime"
+DEST=""
+BENCH=0
+for arg in "$@"; do
+  case "$arg" in
+    --bench) BENCH=1 ;;
+    *) DEST="$arg" ;;
+  esac
+done
+if [ -z "$DEST" ]; then
+  DEST="benchmark/app/src/main/assets/rime"
+  BENCH=1
+fi
+case "$DEST" in /*) ;; *) DEST="$ROOT/$DEST" ;; esac
 EXTRA="$ROOT/benchmark/rime-extra"
+
 WORK="$(mktemp -d)"
 trap 'chmod -R u+w "$WORK" 2>/dev/null; rm -rf "$WORK" 2>/dev/null || true' EXIT
 
@@ -23,7 +36,7 @@ clone() {
   git clone --depth 1 "https://github.com/$1.git" "$WORK/$2"
 }
 
-# ---- 拼音：prelude / luna-pinyin / essay / stroke ----
+# 拼音：prelude / luna-pinyin / essay / stroke
 clone rime/rime-prelude prelude
 clone rime/rime-luna-pinyin luna
 clone rime/rime-essay essay
@@ -35,27 +48,26 @@ find "$WORK/prelude" "$WORK/luna" "$WORK/stroke" -maxdepth 1 -type f \
 # essay.txt 是词频数据（非 yaml），use_preset_vocabulary 必需
 [ -f "$WORK/essay/essay.txt" ] && cp "$WORK/essay/essay.txt" "$DEST/"
 
-# ---- 小鹤音形：开源码表 openfly (MIT) ----
+# 小鹤音形：开源码表 openfly (MIT)
 clone amorphobia/openfly openfly
 for f in "$WORK/openfly"/openfly*.dict.yaml; do
   base="$(basename "$f")"
-  # 反查表体积大且基准用不到，跳过
   [ "$base" = "openfly_reverse.dict.yaml" ] && continue
   cp "$f" "$DEST/"
 done
 
-# 去 lua 的最小化 openfly schema，仅保留音形码表核心，用于性能基准
+# 去 lua 的最小化 openfly schema（正式 App 与基准共用）
 cat > "$DEST/openfly.schema.yaml" <<'YAML'
-# 最小化「开源小鹤」方案：去掉 lua 依赖，仅保留音形码表核心，用于性能基准。
+# 最小化「开源小鹤」方案：去掉 lua 依赖，仅保留音形码表核心。
 # 码表来源 amorphobia/openfly (MIT)。
 schema:
   schema_id: openfly
-  name: 开源小鹤(基准)
-  version: "v10.9z-bench"
+  name: 开源小鹤
+  version: "v10.9z-hexime"
   author:
     - 方案设计: 何海峰
     - 码表: amorphobia/openfly (MIT)
-  description: 小鹤音形码表，去 lua，仅用于基准
+  description: 小鹤音形码表
 
 switches:
   - name: ascii_mode
@@ -100,9 +112,12 @@ translator:
   enable_user_dict: false
 YAML
 
-# ---- 测 librime-lua 开销：同一个码表，仅多一个 lua filter ----
-mkdir -p "$DEST/lua"
-cat > "$DEST/lua/bench_filter.lua" <<'LUA'
+SCHEMAS="openfly,luna_pinyin"
+
+if [ "$BENCH" = "1" ]; then
+  # 测 librime-lua 开销：同一个码表，仅多一个 lua filter
+  mkdir -p "$DEST/lua"
+  cat > "$DEST/lua/bench_filter.lua" <<'LUA'
 -- 用于测量 librime-lua 的固定调用开销：遍历候选并原样输出
 return function(input)
   for cand in input:iter() do
@@ -110,14 +125,13 @@ return function(input)
   end
 end
 LUA
-
-python3 - "$DEST/openfly.schema.yaml" "$DEST/openfly_lua.schema.yaml" <<'PY'
+  python3 - "$DEST/openfly.schema.yaml" "$DEST/openfly_lua.schema.yaml" <<'PY'
 import sys
 
 src, dst = sys.argv[1], sys.argv[2]
 text = open(src, encoding="utf-8").read()
 text = text.replace("schema_id: openfly", "schema_id: openfly_lua")
-text = text.replace("name: 开源小鹤(基准)", "name: 开源小鹤(基准+lua)")
+text = text.replace("name: 开源小鹤", "name: 开源小鹤(基准+lua)")
 text = text.replace(
     "  translators:\n    - table_translator\n",
     "  translators:\n    - table_translator\n  filters:\n    - lua_filter@*bench_filter\n",
@@ -125,24 +139,24 @@ text = text.replace(
 open(dst, "w", encoding="utf-8").write(text)
 print("wrote openfly_lua.schema.yaml")
 PY
+  SCHEMAS="luna_pinyin,openfly,openfly_lua"
+fi
 
-# default.yaml 精简 schema_list；列出拼音、小鹤(无lua)、小鹤(+lua)
-python3 - "$DEST/default.yaml" <<'PY'
+# default.yaml 精简 schema_list
+python3 - "$DEST/default.yaml" "$SCHEMAS" <<'PY'
 import re
 import sys
 
-path = sys.argv[1]
+path, schemas = sys.argv[1], sys.argv[2]
 text = open(path, encoding="utf-8").read()
-patched = re.sub(
-    r"schema_list:\n(?:[ \t]*-[ \t]*schema:.*\n)+",
-    "schema_list:\n  - schema: luna_pinyin\n  - schema: openfly\n  - schema: openfly_lua\n",
-    text,
+replacement = "schema_list:\n" + "".join(
+    f"  - schema: {name}\n" for name in schemas.split(",") if name
 )
+patched = re.sub(r"schema_list:\n(?:[ \t]*-[ \t]*schema:.*\n)+", replacement, text)
 open(path, "w", encoding="utf-8").write(patched)
-print("schema_list ->", "luna_pinyin, openfly, openfly_lua" if patched != text else "unchanged")
+print("schema_list ->", schemas)
 PY
 
-# 合并本地额外方案
 if [ -d "$EXTRA" ]; then
   echo "==> merge extra rime data from $EXTRA"
   cp -r "$EXTRA/." "$DEST/"
