@@ -2,8 +2,16 @@ package com.hexime.ime.ui
 
 import android.content.Context
 import android.graphics.Color
+import android.graphics.Rect
+import android.graphics.drawable.ColorDrawable
+import android.graphics.drawable.StateListDrawable
+import android.os.Handler
+import android.os.Looper
+import android.util.SparseArray
 import android.util.TypedValue
 import android.view.Gravity
+import android.view.MotionEvent
+import android.view.View
 import android.widget.LinearLayout
 import android.widget.TextView
 import com.hexime.ime.engine.InputEngine
@@ -19,7 +27,15 @@ sealed class KeyAction {
     object Enter : KeyAction()
 }
 
-/** 极简 QWERTY 键盘，含数字/符号页，纯代码构建。 */
+/**
+ * 极简 QWERTY 键盘，含数字/符号页。
+ *
+ * 关键点：**不使用子 View 的 OnClickListener**，而是在键盘（ViewGroup）层统一处理
+ * 触摸事件（onInterceptTouchEvent + onTouchEvent），从而：
+ *   1. 支持多点触控（多键齐按/手指重叠不丢键）
+ *   2. 按下（ACTION_DOWN）立即触发，跟手更好
+ *   3. 支持退格长按连续删除
+ */
 class KeyboardView(context: Context) : LinearLayout(context) {
 
     var onKey: ((KeyAction) -> Unit)? = null
@@ -27,8 +43,17 @@ class KeyboardView(context: Context) : LinearLayout(context) {
     private var shift = false
     private var symbolMode = false
 
-    /** 跟随 shift 变大小写的字母键 */
     private val letterViews = LinkedHashMap<Char, TextView>()
+
+    private class KeyHolder(val view: TextView, val action: () -> KeyAction) {
+        val rect = Rect()
+    }
+
+    private val keys = ArrayList<KeyHolder>()
+    private val activePointers = SparseArray<KeyHolder>()
+
+    private val repeatHandler = Handler(Looper.getMainLooper())
+    private var repeatRunnable: Runnable? = null
 
     init {
         orientation = VERTICAL
@@ -45,17 +70,105 @@ class KeyboardView(context: Context) : LinearLayout(context) {
     fun toggleSymbols() {
         symbolMode = !symbolMode
         shift = false
+        stopRepeat()
         build()
     }
 
-    private fun label(ch: Char): String =
-        if (shift) ch.uppercaseChar().toString() else ch.toString()
+    // ---------------------------------------------------------------- 多点触控
+
+    override fun onInterceptTouchEvent(ev: MotionEvent): Boolean = true
+
+    override fun onTouchEvent(ev: MotionEvent): Boolean {
+        when (ev.actionMasked) {
+            MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
+                val i = ev.actionIndex
+                handleDown(ev.getPointerId(i), ev.getX(i), ev.getY(i))
+            }
+            MotionEvent.ACTION_MOVE -> {
+                for (i in 0 until ev.pointerCount) {
+                    handleMove(ev.getPointerId(i), ev.getX(i), ev.getY(i))
+                }
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP -> {
+                handleUp(ev.getPointerId(ev.actionIndex))
+            }
+            MotionEvent.ACTION_CANCEL -> {
+                activePointers.clear()
+                keys.forEach { it.view.isPressed = false }
+                stopRepeat()
+            }
+        }
+        return true
+    }
+
+    private fun handleDown(pointerId: Int, x: Float, y: Float) {
+        val key = keyAt(x, y) ?: return
+        activePointers.put(pointerId, key)
+        key.view.isPressed = true
+        val action = key.action()
+        onKey?.invoke(action)
+        if (action is KeyAction.Backspace) startRepeat(key.action)
+    }
+
+    private fun handleMove(pointerId: Int, x: Float, y: Float) {
+        val current = activePointers.get(pointerId) ?: return
+        val target = keyAt(x, y)
+        if (target !== current) {
+            current.view.isPressed = false
+            stopRepeat()
+            if (target != null) {
+                activePointers.put(pointerId, target)
+                target.view.isPressed = true
+                onKey?.invoke(target.action())
+            } else {
+                activePointers.remove(pointerId)
+            }
+        }
+    }
+
+    private fun handleUp(pointerId: Int) {
+        activePointers.get(pointerId)?.view?.isPressed = false
+        activePointers.remove(pointerId)
+        if (activePointers.size() == 0) stopRepeat()
+    }
+
+    private fun keyAt(x: Float, y: Float): KeyHolder? {
+        val px = x.toInt()
+        val py = y.toInt()
+        return keys.firstOrNull { it.rect.contains(px, py) }
+    }
+
+    override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
+        super.onLayout(changed, left, top, right, bottom)
+        for (key in keys) {
+            offsetDescendantRectToMyCoords(key.view, key.rect)
+        }
+    }
+
+    private fun startRepeat(action: () -> KeyAction) {
+        stopRepeat()
+        val runnable = object : Runnable {
+            override fun run() {
+                onKey?.invoke(action())
+                repeatHandler.postDelayed(this, 55)
+            }
+        }
+        repeatRunnable = runnable
+        repeatHandler.postDelayed(runnable, 400)
+    }
+
+    private fun stopRepeat() {
+        repeatRunnable?.let { repeatHandler.removeCallbacks(it) }
+        repeatRunnable = null
+    }
 
     // ---------------------------------------------------------------- 布局
 
     private fun build() {
         removeAllViews()
+        keys.clear()
         letterViews.clear()
+        activePointers.clear()
         if (symbolMode) buildSymbols() else buildLetters()
     }
 
@@ -65,9 +178,7 @@ class KeyboardView(context: Context) : LinearLayout(context) {
 
         val row3 = newRow()
         addKey(row3, "⇧", 1.4f) { KeyAction.Shift }
-        ROW3.forEach { ch ->
-            letterViews[ch] = addKey(row3, label(ch), 1f) { symFor(ch) }
-        }
+        ROW3.forEach { ch -> letterViews[ch] = addKey(row3, label(ch), 1f) { symFor(ch) } }
         addKey(row3, "⌫", 1.4f) { KeyAction.Backspace }
         addView(row3)
 
@@ -103,17 +214,13 @@ class KeyboardView(context: Context) : LinearLayout(context) {
 
     private fun letterRow(chars: List<Char>): LinearLayout {
         val row = newRow()
-        chars.forEach { ch ->
-            letterViews[ch] = addKey(row, label(ch), 1f) { symFor(ch) }
-        }
+        chars.forEach { ch -> letterViews[ch] = addKey(row, label(ch), 1f) { symFor(ch) } }
         return row
     }
 
     private fun symbolRow(chars: List<Char>): LinearLayout {
         val row = newRow()
-        chars.forEach { ch ->
-            addKey(row, ch.toString(), 1f) { KeyAction.Sym(ch.code) }
-        }
+        chars.forEach { ch -> addKey(row, ch.toString(), 1f) { KeyAction.Sym(ch.code) } }
         return row
     }
 
@@ -137,15 +244,25 @@ class KeyboardView(context: Context) : LinearLayout(context) {
             setTextColor(Color.parseColor("#212121"))
             gravity = Gravity.CENTER
             setPadding(0, dp(12), 0, dp(12))
-            setBackgroundColor(Color.parseColor("#FFFFFF"))
-            isClickable = true
-            setOnClickListener { onKey?.invoke(action()) }
+            background = keyBackground()
+            // 关键：不设置 OnClickListener，触摸统一由键盘层处理
+            isClickable = false
         }
         val lp = LayoutParams(0, LayoutParams.WRAP_CONTENT, weight)
         lp.marginStart = dp(3)
         lp.marginEnd = dp(3)
         row.addView(tv, lp)
+        keys.add(KeyHolder(tv, action))
         return tv
+    }
+
+    private fun keyBackground(): StateListDrawable {
+        val normal = ColorDrawable(Color.parseColor("#FFFFFF"))
+        val pressed = ColorDrawable(Color.parseColor("#90A4AE"))
+        return StateListDrawable().apply {
+            addState(intArrayOf(android.R.attr.state_pressed), pressed)
+            addState(intArrayOf(), normal)
+        }
     }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
