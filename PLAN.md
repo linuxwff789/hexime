@@ -257,5 +257,29 @@ hexime/
 
 ### 仍未验证
 - 官方「小鹤音形」码表（本次用的是开源替代 `openfly`，MIT）；官方码表需本地导入后复测。
-- 插件（lua/octagram/predict）未并入 `rime-static`；`openfly` 的 lua 辅助功能（快捷/日期/时间）因此未启用，码表核心不受影响。
 - 多方案同时驻留的实际长期内存表现。
+
+---
+
+## 11. librime-lua 性能开销（已实测）
+
+同一 `openfly` 码表、同一字典，**唯一差异是多挂一个 `lua_filter`**（遍历候选并原样输出），用于隔离 lua 引擎的固定开销。
+
+| 方案 | avg | p50 | p95 | p99 | max |
+|---|---|---|---|---|---|
+| `openfly`（无 lua） | 0.00–0.01 | 0.00 | 0.01 | 0.01 | ≤0.03 |
+| `openfly_lua`（+lua filter） | 0.01–0.05 | 0.01–0.05 | 0.01–0.10 | 0.03–0.10 | ≤0.12 |
+
+- **绝对增量：每键约 +0.01–0.05 ms（几十微秒）**，仍在亚毫秒级，对打字体验无感知。
+- **内存**：两方案稳态 PSS 几乎相同（~167–169 MB，差异在噪声内）。
+- **体积**：`libhexime_bench.so` 4.44 MB → 5.40 MB（**+937 KB**）；APK +311 KB（压缩后）。
+- **部署**：无明显额外开销。
+
+**结论：引入 lua 的性能代价可忽略，可放心启用**。唯一实际成本是 `~0.9 MB` 的 `.so` 体积。
+需要 lua 的现代方案（`openfly`、雾凇拼音等）可以放心使用。
+
+### 集成要点（踩坑记录）
+1. `RIME_SETUP_EXTRA_MODULES` 会把已合并的插件模块（lua/octagram/predict）加入默认模块组，**不要覆盖 `traits.modules`**，否则核心 translator 不会被加载（候选全空）。
+2. `rime_require_module_*` 是 **C++ 链接**，JNI 里必须按 C++ 声明（不能包 `extern "C"`），否则链接找不到符号。
+3. librime 的插件发现（符号链接 + GLOB）本身正常工作；打开 `rime_require_module_lua()` 引用即可把 lua 对象拉进 `.so`。
+4. lua 脚本从 `<shared_data_dir>/lua/*.lua` 加载；配方里 `lua_filter@*name` 等价于 `require("name")`。
