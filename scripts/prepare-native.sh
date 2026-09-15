@@ -14,7 +14,7 @@ TRIME_REF="${TRIME_REF:-v3.3.12}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DEST="$ROOT/benchmark/app/src/main/cpp"
 WORK="$(mktemp -d)"
-trap 'rm -rf "$WORK"' EXIT
+trap 'chmod -R u+w "$WORK" 2>/dev/null; rm -rf "$WORK" 2>/dev/null || true' EXIT
 
 echo "==> cloning osfans/trime@$TRIME_REF with submodules"
 git clone --depth 1 --branch "$TRIME_REF" \
