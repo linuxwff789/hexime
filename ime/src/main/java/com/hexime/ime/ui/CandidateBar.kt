@@ -27,7 +27,7 @@ class CandidateBar(context: Context) : HorizontalScrollView(context) {
     private val palette = HeximeTheme.of(context)
 
     private val row = LinearLayout(context).apply {
-        orientation = HORIZONTAL
+        orientation = LinearLayout.HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL
     }
 
