@@ -2,14 +2,13 @@ package com.hexime.ime.ui
 
 import android.content.Context
 import android.content.res.Configuration
-import android.graphics.drawable.ColorDrawable
 
 /**
  * 键盘配色。跟随系统深色模式（resources.configuration.uiMode），
  * 两套：LIGHT（白色）与 DARK（暗黑）。
  *
  * 颜色集中在这里，KeyboardView / CandidateBar / 状态栏都从这里取，
- * 换配色只改这一个文件。ColorDrawable 按配色缓存，多个按键共享同一实例。
+ * 换配色只改这一个文件。
  */
 object HeximeTheme {
 
@@ -25,11 +24,7 @@ object HeximeTheme {
         val code: Int,
         val statusBg: Int,
         val statusText: Int,
-    ) {
-        // 按键背景无状态，可跨 View 共享；按压态由 StateListDrawable 决定
-        val keyFaceDrawable: ColorDrawable by lazy { ColorDrawable(keyFace) }
-        val keyPressedDrawable: ColorDrawable by lazy { ColorDrawable(keyPressed) }
-    }
+    )
 
     /** 白色配色。 */
     val LIGHT = Palette(

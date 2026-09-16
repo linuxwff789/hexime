@@ -132,7 +132,7 @@ class HeximeService : InputMethodService() {
         // 顶部一行：左边显示当前编码，右边显示跟手延迟（可选）。
         // 高度写死，编码从无到有也不会让键盘上下跳。
         codeView = TextView(this).apply {
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 18f)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
             setTextColor(palette.code)
             gravity = Gravity.CENTER_VERTICAL
             maxLines = 1
@@ -168,7 +168,7 @@ class HeximeService : InputMethodService() {
             setMode(asciiMode, schemaName) // 空格键显示方案名/abc
         }
 
-        root.addView(codeRow, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(40)))
+        root.addView(codeRow, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(34)))
         root.addView(candidateBar)
         root.addView(keyboardView)
         lastCode = "" // 新 View，必须重设文本

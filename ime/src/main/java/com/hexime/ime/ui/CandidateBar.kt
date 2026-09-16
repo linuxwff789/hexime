@@ -31,10 +31,10 @@ class CandidateBar(context: Context) : HorizontalScrollView(context) {
         gravity = Gravity.CENTER_VERTICAL
     }
 
-    // 只解析一次的样式
-    private val padH = dp(14)
-    private val padV = dp(6)
-    private val textSizeSp = 20f
+    // 只解析一次的样式（高度压到 26dp，内边距和字号同步收小）
+    private val padH = dp(10)
+    private val padV = dp(1)
+    private val textSizeSp = 17f
 
     /** 视图池：row 里最多有多少个候选，就一直复用这些 TextView。 */
     private val pool = ArrayList<TextView>(10)
@@ -47,7 +47,7 @@ class CandidateBar(context: Context) : HorizontalScrollView(context) {
         isHorizontalScrollBarEnabled = false
         setBackgroundColor(palette.barBg)
         // 固定高度：有没有候选都一样高，避免输入时整个键盘上下跳
-        minimumHeight = dp(46)
+        minimumHeight = dp(26)
         addView(row, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.MATCH_PARENT))
     }
 

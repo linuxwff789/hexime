@@ -2,6 +2,7 @@ package com.hexime.ime.ui
 
 import android.content.Context
 import android.graphics.Rect
+import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.StateListDrawable
 import android.os.Handler
 import android.os.Looper
@@ -39,7 +40,7 @@ sealed class KeyAction {
  *
  * 资源优化：
  *   * 命中测试按行分桶（每次 MOVE 只扫手指所在那一行的 7~10 个键，而不是全部 34 个）
- *   * 按键背景用的 ColorDrawable 按配色缓存、全键盘共享（见 [HeximeTheme]）
+ *   * 键面是圆角 GradientDrawable，只在建键盘时创建一次，不在按键热路径上
  */
 class KeyboardView(context: Context) : LinearLayout(context) {
 
@@ -386,15 +387,24 @@ class KeyboardView(context: Context) : LinearLayout(context) {
     }
 
     private fun keyBackground(): StateListDrawable = StateListDrawable().apply {
-        // ColorDrawable 按配色缓存、全键盘共享（见 HeximeTheme.Palette）
-        addState(intArrayOf(android.R.attr.state_pressed), palette.keyPressedDrawable)
-        addState(intArrayOf(), palette.keyFaceDrawable)
+        addState(intArrayOf(android.R.attr.state_pressed), keyDrawable(palette.keyPressed))
+        addState(intArrayOf(), keyDrawable(palette.keyFace))
+    }
+
+    /** 圆角键面。每个键两份（常态/按压），只在建键盘时创建一次，不在按键热路径上。 */
+    private fun keyDrawable(color: Int): GradientDrawable = GradientDrawable().apply {
+        shape = GradientDrawable.RECTANGLE
+        cornerRadius = KEY_CORNER_RADIUS_DP * resources.displayMetrics.density
+        setColor(color)
     }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
 
     private companion object {
         const val LONG_PRESS_MS = 400L
+
+        /** 按键圆角半径（dp）。 */
+        const val KEY_CORNER_RADIUS_DP = 8f
 
         val ROW1 = listOf('q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p')
         val ROW2 = listOf('a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l')
