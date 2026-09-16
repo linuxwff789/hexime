@@ -1,6 +1,7 @@
 package com.hexime.ime.ui
 
 import android.content.Context
+import android.text.TextUtils
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
@@ -10,10 +11,11 @@ import android.widget.TextView
 import com.hexime.ime.engine.Candidate
 
 /**
- * 候选栏 = 左侧「编码」+ 右侧可滚动的候选词。
+ * 候选栏 = 上面一行「编码」+ 下面一行候选词。
  *
- * 编码（preedit）单独放在最左边，候选词再多也不会把编码挤走 ——
- * 输入框里字太小/被滚走时也能看到自己打了什么。
+ * 编码单独占一整行，不和候选挤在一起：候选再多也不会把编码顶飞，
+ * 输入框里字太小/被滚走时也能一眼看到自己打了什么。
+ * 没有组合串时编码行自动隐藏（GONE），不占高度。
  *
  * 资源优化（打字热路径）：
  *  * 候选 TextView **池化复用**：按键不再 removeAllViews + 重建 N 个 View
@@ -27,19 +29,18 @@ class CandidateBar(context: Context) : LinearLayout(context) {
 
     private val palette = HeximeTheme.of(context)
 
-    /** 左侧编码显示。 */
+    /** 上一行：当前输入的编码（组合串）。 */
     private val codeView = TextView(context).apply {
-        setTextSize(TypedValue.COMPLEX_UNIT_SP, 20f)
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, 18f)
         setTextColor(palette.code)
-        setPadding(dp(12), 0, dp(8), 0)
+        setPadding(dp(12), dp(4), dp(12), dp(4))
         gravity = Gravity.CENTER_VERTICAL
         maxLines = 1
+        ellipsize = TextUtils.TruncateAt.END
         visibility = GONE
-        // 编码长了自己截断，不挤压候选区
-        ellipsize = android.text.TextUtils.TruncateAt.START
-        maxWidth = dp(360)
     }
 
+    /** 下一行：候选词，横向可滚动。 */
     private val row = LinearLayout(context).apply {
         orientation = HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL
@@ -54,6 +55,7 @@ class CandidateBar(context: Context) : LinearLayout(context) {
     private val padH = dp(14)
     private val padV = dp(6)
     private val textSizeSp = 20f
+    private val candidateRowHeight = dp(46)
 
     /** 视图池：row 里最多有多少个候选，就一直复用这些 TextView。 */
     private val pool = ArrayList<TextView>(10)
@@ -64,22 +66,19 @@ class CandidateBar(context: Context) : LinearLayout(context) {
     private var lastComposition = ""
 
     init {
-        orientation = HORIZONTAL
-        gravity = Gravity.CENTER_VERTICAL
+        orientation = VERTICAL
         setBackgroundColor(palette.barBg)
-        minimumHeight = dp(46)
-        addView(codeView)
-        addView(scroller, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
+        addView(codeView, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
+        addView(scroller, LayoutParams(LayoutParams.MATCH_PARENT, candidateRowHeight))
     }
 
-    /** 显示当前输入的编码（组合串）。空串则隐藏。 */
+    /** 显示当前输入的编码（组合串）。空串则整行隐藏。 */
     fun setComposition(text: String) {
         if (text == lastComposition) return
         lastComposition = text
         codeView.text = text
         codeView.visibility = if (text.isEmpty()) GONE else VISIBLE
-        // 编码出现/消失会改变左侧宽度，候选区重新布局一次即可
-        if (scrollX != 0) scroller.scrollTo(0, 0)
+        if (scroller.scrollX != 0) scroller.scrollTo(0, 0)
     }
 
     fun setCandidates(candidates: List<Candidate>) {
