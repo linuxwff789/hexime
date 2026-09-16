@@ -36,6 +36,10 @@ sealed class KeyAction {
  *   1. 支持多点触控（多键齐按/手指重叠不丢键）
  *   2. 按下（ACTION_DOWN）立即触发，跟手更好
  *   3. 支持退格长按连续删除
+ *
+ * 资源优化：
+ *   * 命中测试按行分桶（每次 MOVE 只扫手指所在那一行的 7~10 个键，而不是全部 34 个）
+ *   * 按键背景用的两个 ColorDrawable 全局共享，文字色只解析一次
  */
 class KeyboardView(context: Context) : LinearLayout(context) {
 
@@ -54,7 +58,16 @@ class KeyboardView(context: Context) : LinearLayout(context) {
         val rect = Rect()
     }
 
+    /** 一行按键的桶：命中测试先按 y 命中行，再在行内找键。 */
+    private class RowBucket {
+        var top = Int.MAX_VALUE
+        var bottom = Int.MIN_VALUE
+        val keys = ArrayList<KeyHolder>(10)
+    }
+
     private val keys = ArrayList<KeyHolder>()
+    private val buckets = ArrayList<RowBucket>(4)
+    private var currentBucket: RowBucket? = null
     private val activePointers = SparseArray<KeyHolder>()
 
     private val repeatHandler = Handler(Looper.getMainLooper())
@@ -62,7 +75,7 @@ class KeyboardView(context: Context) : LinearLayout(context) {
 
     init {
         orientation = VERTICAL
-        setBackgroundColor(Color.parseColor("#CFD8DC"))
+        setBackgroundColor(BACKGROUND)
         setPadding(dp(4), dp(6), dp(4), dp(6))
         build()
     }
@@ -143,7 +156,15 @@ class KeyboardView(context: Context) : LinearLayout(context) {
     private fun keyAt(x: Float, y: Float): KeyHolder? {
         val px = x.toInt()
         val py = y.toInt()
-        return keys.firstOrNull { it.rect.contains(px, py) }
+        for (bucket in buckets) {
+            if (py < bucket.top || py > bucket.bottom) continue // 先按行过滤
+            val rowKeys = bucket.keys
+            for (i in rowKeys.indices) {
+                val key = rowKeys[i]
+                if (!key.rect.isEmpty && key.rect.contains(px, py)) return key
+            }
+        }
+        return null
     }
 
     override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
@@ -153,6 +174,18 @@ class KeyboardView(context: Context) : LinearLayout(context) {
             // 否则 rect 为空，命中测试永远失败。
             key.view.getDrawingRect(key.rect)
             offsetDescendantRectToMyCoords(key.view, key.rect)
+        }
+        // 更新每行的 y 范围，供命中测试快速过滤
+        for (bucket in buckets) {
+            var lo = Int.MAX_VALUE
+            var hi = Int.MIN_VALUE
+            for (key in bucket.keys) {
+                if (key.rect.isEmpty) continue
+                if (key.rect.top < lo) lo = key.rect.top
+                if (key.rect.bottom > hi) hi = key.rect.bottom
+            }
+            bucket.top = lo
+            bucket.bottom = hi
         }
     }
 
@@ -178,6 +211,8 @@ class KeyboardView(context: Context) : LinearLayout(context) {
     private fun build() {
         removeAllViews()
         keys.clear()
+        buckets.clear()
+        currentBucket = null
         letterViews.clear()
         activePointers.clear()
         if (symbolMode) buildSymbols() else buildLetters()
@@ -238,9 +273,14 @@ class KeyboardView(context: Context) : LinearLayout(context) {
     private fun symFor(ch: Char): KeyAction.Sym =
         KeyAction.Sym(ch.code, if (shift) InputEngine.MASK_SHIFT else 0)
 
-    private fun newRow(): LinearLayout = LinearLayout(context).apply {
-        orientation = HORIZONTAL
-        setPadding(0, dp(3), 0, dp(3))
+    private fun newRow(): LinearLayout {
+        val bucket = RowBucket()
+        buckets.add(bucket)
+        currentBucket = bucket
+        return LinearLayout(context).apply {
+            orientation = HORIZONTAL
+            setPadding(0, dp(3), 0, dp(3))
+        }
     }
 
     private fun addKey(
@@ -252,7 +292,7 @@ class KeyboardView(context: Context) : LinearLayout(context) {
         val tv = TextView(context).apply {
             this.text = text
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 19f)
-            setTextColor(Color.parseColor("#212121"))
+            setTextColor(TEXT_COLOR)
             gravity = Gravity.CENTER
             setPadding(0, 0, 0, 0)
             background = keyBackground()
@@ -263,17 +303,15 @@ class KeyboardView(context: Context) : LinearLayout(context) {
         lp.marginStart = dp(3)
         lp.marginEnd = dp(3)
         row.addView(tv, lp)
-        keys.add(KeyHolder(tv, action))
+        val holder = KeyHolder(tv, action)
+        keys.add(holder)
+        currentBucket?.keys.add(holder)
         return tv
     }
 
-    private fun keyBackground(): StateListDrawable {
-        val normal = ColorDrawable(Color.parseColor("#FFFFFF"))
-        val pressed = ColorDrawable(Color.parseColor("#90A4AE"))
-        return StateListDrawable().apply {
-            addState(intArrayOf(android.R.attr.state_pressed), pressed)
-            addState(intArrayOf(), normal)
-        }
+    private fun keyBackground(): StateListDrawable = StateListDrawable().apply {
+        addState(intArrayOf(android.R.attr.state_pressed), KEY_BG_PRESSED)
+        addState(intArrayOf(), KEY_BG_NORMAL)
     }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
@@ -282,5 +320,11 @@ class KeyboardView(context: Context) : LinearLayout(context) {
         val ROW1 = listOf('q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p')
         val ROW2 = listOf('a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l')
         val ROW3 = listOf('z', 'x', 'c', 'v', 'b', 'n', 'm')
+
+        // ColorDrawable 无状态（不受 bounds/state 影响），可以全局共享
+        val KEY_BG_NORMAL = ColorDrawable(Color.parseColor("#FFFFFF"))
+        val KEY_BG_PRESSED = ColorDrawable(Color.parseColor("#90A4AE"))
+        val BACKGROUND = Color.parseColor("#CFD8DC")
+        val TEXT_COLOR = Color.parseColor("#212121")
     }
 }

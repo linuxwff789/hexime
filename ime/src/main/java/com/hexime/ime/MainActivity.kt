@@ -175,6 +175,7 @@ class MainActivity : Activity() {
             if (engine.initialize(shared.absolutePath, user.absolutePath, log.absolutePath)) {
                 val t0 = System.currentTimeMillis()
                 engine.deploy(true)
+                RimeDataInstaller.markDeployed(this) // 手动部署成功：更新部署戳，下次启动不再重复部署
                 val ms = System.currentTimeMillis() - t0
                 engine.shutdown()
                 main.post { statusView.text = "部署完成：${ms} ms" }

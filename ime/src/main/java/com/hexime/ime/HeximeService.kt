@@ -48,6 +48,29 @@ class HeximeService : InputMethodService() {
     /** 最近一次按键到下一帧的耗时（ms），用于评估「跟手性」。 */
     private var latencyMs = 0.0
 
+    // ------- 缓存：避免打字热路径上反复做 JNI 调用 / 字符串拼接 / prefs 读取 -------
+
+    /** librime 版本号，进程内不会变，只在引擎启动后取一次。 */
+    private var rimeVersion = ""
+
+    /** 当前方案名，只在建会话/切方案时更新。 */
+    private var schemaName = ""
+
+    /** 状态栏上一次显示的完整文本：内容没变就不 setText（省一次 measure/layout/draw）。 */
+    private var lastStatus = ""
+
+    /** 跟手延迟的显示文本，数值变化时才重算。 */
+    private var latencyText = ""
+
+    /** 是否显示跟手延迟（缓存 prefs，切换时更新）。 */
+    private var showLatency = false
+
+    /** 已有一帧回调在排队（合并同帧内的多次按键测量请求）。 */
+    private var latencyPending = false
+
+    /** 建会话是否已排队，避免主线程阻塞在 JNI 上。 */
+    private var sessionPending = false
+
     private val vibrator: Vibrator? by lazy {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             getSystemService(VibratorManager::class.java)?.defaultVibrator
@@ -59,6 +82,7 @@ class HeximeService : InputMethodService() {
 
     override fun onCreate() {
         super.onCreate()
+        showLatency = HeximeSettings.showLatency(this)
         bootstrapEngine()
     }
 
@@ -75,8 +99,9 @@ class HeximeService : InputMethodService() {
             // 点状态栏切换跟手延迟显示
             isClickable = true
             setOnClickListener {
-                val next = !HeximeSettings.showLatency(this@HeximeService)
-                HeximeSettings.setShowLatency(this@HeximeService, next)
+                showLatency = !showLatency
+                HeximeSettings.setShowLatency(this@HeximeService, showLatency)
+                lastStatus = "" // 强制刷新一次
                 updateStatus()
             }
         }
@@ -90,13 +115,14 @@ class HeximeService : InputMethodService() {
         root.addView(statusView)
         root.addView(candidateBar)
         root.addView(keyboardView)
+        lastStatus = "" // 新 View，必须重设文本
         updateStatus()
         return root
     }
 
     override fun onStartInput(attribute: EditorInfo?, restarting: Boolean) {
         super.onStartInput(attribute, restarting)
-        ensureSession()
+        ensureSessionAsync()
         refresh()
     }
 
@@ -111,7 +137,7 @@ class HeximeService : InputMethodService() {
             appliedKeyHeight = height
             setInputView(onCreateInputView())
         }
-        ensureSession()
+        ensureSessionAsync()
         refresh()
     }
 
@@ -135,15 +161,38 @@ class HeximeService : InputMethodService() {
             val log = RimeDataInstaller.logDir(this).apply { mkdirs() }
             val ok = engine.initialize(shared.absolutePath, user.absolutePath, log.absolutePath)
             if (ok) {
-                engine.deploy(false)
+                // 数据/包没变就不重复部署（旧实现每次进程启动都 deploy 一遍）
+                if (RimeDataInstaller.needsDeploy(this)) {
+                    val t0 = System.currentTimeMillis()
+                    engine.deploy(false)
+                    RimeDataInstaller.markDeployed(this)
+                    Log.i(TAG, "deploy took ${System.currentTimeMillis() - t0} ms")
+                } else {
+                    Log.i(TAG, "deploy skipped (data unchanged)")
+                }
+                rimeVersion = engine.version()
                 ready = true
-                Log.i(TAG, "engine ready, version=${engine.version()}")
+                // 会话也在 io 线程建好（createSession 要加载编译好的词库，别放主线程）
+                ensureSession()
+                Log.i(TAG, "engine ready, version=$rimeVersion")
             } else {
                 Log.e(TAG, "engine initialize failed")
             }
             main.post {
                 updateStatus()
-                ensureSession()
+                refresh()
+            }
+        }
+    }
+
+    /** 在 io 线程创建会话（若还没有），完成后回主线程刷新一次 UI。 */
+    private fun ensureSessionAsync() {
+        if (!ready || engine.hasSession() || sessionPending) return
+        sessionPending = true
+        io.execute {
+            ensureSession()
+            main.post {
+                sessionPending = false
                 refresh()
             }
         }
@@ -153,6 +202,7 @@ class HeximeService : InputMethodService() {
         if (!ready) return
         if (!engine.hasSession()) {
             engine.createSession(schemas[schemaIndex])
+            schemaName = engine.currentSchema()
         }
     }
 
@@ -193,6 +243,8 @@ class HeximeService : InputMethodService() {
             KeyAction.SwitchSchema -> {
                 schemaIndex = (schemaIndex + 1) % schemas.size
                 engine.selectSchema(schemas[schemaIndex])
+                schemaName = engine.currentSchema()
+                lastStatus = "" // 方案名变了，强制刷新状态栏
             }
         }
         if (action is KeyAction.Sym && shiftOn) {
@@ -225,18 +277,23 @@ class HeximeService : InputMethodService() {
 
     private fun updateStatus() {
         val bar = statusView ?: return
-        bar.text = when {
+        val text = when {
             !ready -> "部署中…（首次会编译词库）"
             else -> buildString {
-                append(
-                    "${engine.currentSchema()}  ·  ${if (asciiMode) "英" else "中"}" +
-                        "  ·  librime ${engine.version()}",
-                )
-                if (HeximeSettings.showLatency(this@HeximeService)) {
-                    append("  ·  跟手 %.1f ms".format(latencyMs))
+                append(schemaName.ifEmpty { "—" })
+                append("  ·  ")
+                append(if (asciiMode) "英" else "中")
+                append("  ·  librime ")
+                append(rimeVersion)
+                if (showLatency) {
+                    append("  ·  跟手 ")
+                    append(latencyText.ifEmpty { "—" })
                 }
             }
         }
+        if (text == lastStatus) return // 内容没变：不 setText，省 measure/layout/draw
+        lastStatus = text
+        bar.text = text
     }
 
     private fun haptic() {
@@ -250,10 +307,17 @@ class HeximeService : InputMethodService() {
 
     /** 记录「按键 -> 下一帧渲染」的耗时，作为跟手性的量化指标。 */
     private fun measureLatency(t0: Long) {
-        if (!HeximeSettings.showLatency(this)) return
+        if (!showLatency || latencyPending) return // 同帧内只留一个回调
+        latencyPending = true
         Choreographer.getInstance().postFrameCallback { frameTimeNanos ->
-            latencyMs = (frameTimeNanos - t0) / 1_000_000.0
-            updateStatus()
+            latencyPending = false
+            val ms = (frameTimeNanos - t0) / 1_000_000.0
+            // 显示到 0.1ms，数值没变就不重排版状态栏
+            if (latencyText.isEmpty() || Math.abs(ms - latencyMs) >= 0.05) {
+                latencyMs = ms
+                latencyText = "%.1f ms".format(ms)
+                updateStatus()
+            }
         }
     }
 

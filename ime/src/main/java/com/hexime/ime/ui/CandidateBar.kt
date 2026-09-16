@@ -9,7 +9,16 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import com.hexime.ime.engine.Candidate
 
-/** 极简候选栏：一行横向可滚动，点击选词。 */
+/**
+ * 极简候选栏：一行横向可滚动，点击选词。
+ *
+ * 资源优化（打字热路径）：
+ *  * 候选 TextView **池化复用**：按键不再 removeAllViews + 重建 N 个 View
+ *    （旧实现每次按键都会 new N 个 TextView + Color.parseColor + dp() + 监听器）。
+ *  * 颜色/内边距/字号**只解析一次**，缓存在字段里。
+ *  * 候选文本序列与上次相同则**整帧跳过**（不碰 View、不触发 requestLayout），
+ *    连续按键时绝大多数情况都命中这条路径。
+ */
 class CandidateBar(context: Context) : HorizontalScrollView(context) {
 
     private val row = LinearLayout(context).apply {
@@ -20,9 +29,23 @@ class CandidateBar(context: Context) : HorizontalScrollView(context) {
 
     var onSelect: ((Int) -> Unit)? = null
 
+    // 只解析一次的样式
+    private val barColor = Color.parseColor("#ECEFF1")
+    private val textColor = Color.parseColor("#212121")
+    private val padH = dp(14)
+    private val padV = dp(6)
+    private val textSizeSp = 20f
+
+    /** 视图池：row 里最多有多少个候选，就一直复用这些 TextView。 */
+    private val pool = ArrayList<TextView>(10)
+    /** 上一次真正渲染出去的候选文本，用于跳过无变化的刷新。 */
+    private val lastTexts = ArrayList<String>(10)
+    /** 本次的候选文本（复用同一个 ArrayList，避免每次按键分配）。 */
+    private val pending = ArrayList<String>(10)
+
     init {
         isHorizontalScrollBarEnabled = false
-        setBackgroundColor(Color.parseColor("#ECEFF1"))
+        setBackgroundColor(barColor)
         addView(
             row,
             LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.MATCH_PARENT),
@@ -30,28 +53,50 @@ class CandidateBar(context: Context) : HorizontalScrollView(context) {
     }
 
     fun setCandidates(candidates: List<Candidate>) {
-        // 注意：只清空 row 的子视图，不能 removeAllViews()，
-        // 否则会把 row 本身从 HorizontalScrollView 里移除。
-        row.removeAllViews()
-        if (candidates.isEmpty()) return
+        pending.clear()
+        for (candidate in candidates) pending.add(candidate.text)
+        if (pending == lastTexts) return // 候选没变：一行 View 操作都不做
 
-        candidates.forEachIndexed { index, candidate ->
-            val view = TextView(context).apply {
-                text = if (index < 9) "${index + 1} ${candidate.text}" else candidate.text
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 20f)
-                setTextColor(Color.parseColor("#212121"))
-                setPadding(dp(14), dp(6), dp(14), dp(6))
-                gravity = Gravity.CENTER
-                isClickable = true
-                setOnClickListener { onSelect?.invoke(index) }
-            }
-            row.addView(view)
-        }
-        scrollTo(0, 0)
+        if (pool.size < candidates.size) growPool(candidates.size)
+        for (i in candidates.indices) bind(pool[i], i, candidates[i].text)
+        for (i in candidates.size until pool.size) hide(pool[i])
+
+        lastTexts.clear()
+        lastTexts.addAll(pending)
+        if (scrollX != 0) scrollTo(0, 0)
     }
 
     fun clear() {
-        row.removeAllViews()
+        if (lastTexts.isEmpty() && pool.isEmpty()) return
+        lastTexts.clear()
+        for (view in pool) hide(view)
+    }
+
+    private fun growPool(size: Int) {
+        while (pool.size < size) {
+            val tv = TextView(context).apply {
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, textSizeSp)
+                setTextColor(textColor)
+                setPadding(padH, padV, padH, padV)
+                gravity = Gravity.CENTER
+                isClickable = true
+                setOnClickListener { onSelect?.invoke(tag as Int) }
+            }
+            pool.add(tv)
+            row.addView(tv)
+        }
+    }
+
+    private fun bind(view: TextView, index: Int, text: String) {
+        view.tag = index
+        val label = if (index < 9) "${index + 1} $text" else text
+        // setText 内部会 requestLayout，内容没变就不要设
+        if (view.text?.toString() != label) view.text = label
+        if (view.visibility != VISIBLE) view.visibility = VISIBLE
+    }
+
+    private fun hide(view: TextView) {
+        if (view.visibility != GONE) view.visibility = GONE
     }
 
     private fun dp(value: Int): Int =
