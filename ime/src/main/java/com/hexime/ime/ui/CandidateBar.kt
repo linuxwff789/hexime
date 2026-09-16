@@ -47,8 +47,8 @@ class CandidateBar(context: Context) : LinearLayout(context) {
         addView(row, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.MATCH_PARENT))
     }
 
-    private val prevBtn = barButton("‹") { onPageUp?.invoke() }
-    private val nextBtn = barButton("›") { onPageDown?.invoke() }
+    private val prevBtn = barButton("▲") { onPageUp?.invoke() }
+    private val nextBtn = barButton("▼") { onPageDown?.invoke() }
     private val lookupBtn = barButton("反查") { onReverseLookup?.invoke() }
 
     // 只解析一次的样式（高度压到 26dp，内边距和字号同步收小）
