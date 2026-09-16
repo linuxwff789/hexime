@@ -8,6 +8,7 @@ import android.os.Looper
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
+import android.text.TextUtils
 import android.util.Log
 import android.util.TypedValue
 import android.view.Choreographer
@@ -36,7 +37,12 @@ class HeximeService : InputMethodService() {
     @Volatile
     private var ready = false
 
-    private var statusView: TextView? = null
+    /** 顶部一行左边：当前编码（组合串）。 */
+    private var codeView: TextView? = null
+
+    /** 顶部一行右边：跟手延迟（设置里开了才显示）。 */
+    private var latencyView: TextView? = null
+
     private var candidateBar: CandidateBar? = null
     private var keyboardView: KeyboardView? = null
 
@@ -57,8 +63,14 @@ class HeximeService : InputMethodService() {
     /** 当前方案名，只在建会话/切方案时更新。 */
     private var schemaName = ""
 
-    /** 状态栏上一次显示的完整文本：内容没变就不 setText（省一次 measure/layout/draw）。 */
-    private var lastStatus = ""
+    /** 顶部编码行上一次的文本：内容没变就不 setText（省一次 measure/layout/draw）。 */
+    private var lastCode = ""
+
+    /** 顶部右侧跟手延迟上一次的文本。 */
+    private var lastLatency = ""
+
+    /** 当前编码（组合串），显示在顶部那一行。 */
+    private var composition = ""
 
     /** 跟手延迟的显示文本，数值变化时才重算。 */
     private var latencyText = ""
@@ -99,8 +111,10 @@ class HeximeService : InputMethodService() {
         if (night != lastNight) {
             lastNight = night
             appliedKeyHeight = -1 // 让下次 onStartInputView 也按新配色重建
-            lastStatus = ""
-            statusView = null
+            lastCode = ""
+            lastLatency = ""
+            codeView = null
+            latencyView = null
             setInputView(onCreateInputView())
             refresh()
         }
@@ -115,32 +129,51 @@ class HeximeService : InputMethodService() {
             setBackgroundColor(palette.keyboardBg)
         }
 
-        statusView = TextView(this).apply {
+        // 顶部一行：左边显示当前编码，右边显示跟手延迟（可选）。
+        // 高度写死，编码从无到有也不会让键盘上下跳。
+        codeView = TextView(this).apply {
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 18f)
+            setTextColor(palette.code)
+            gravity = Gravity.CENTER_VERTICAL
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
+            setPadding(dp(12), 0, dp(8), 0)
+        }
+        latencyView = TextView(this).apply {
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
             setTextColor(palette.statusText)
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(4), 0, dp(10), 0)
+        }
+        val codeRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
             setBackgroundColor(palette.statusBg)
-            setPadding(dp(10), dp(3), dp(10), dp(3))
-            // 点状态栏切换跟手延迟显示
+            // 点这一行切换跟手延迟显示
             isClickable = true
             setOnClickListener {
                 showLatency = !showLatency
                 HeximeSettings.setShowLatency(this@HeximeService, showLatency)
-                lastStatus = "" // 强制刷新一次
-                updateStatus()
+                lastLatency = "" // 强制刷新
+                updateCodeRow()
             }
+            addView(codeView, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+            addView(latencyView)
         }
         candidateBar = CandidateBar(this).apply {
             onSelect = { index -> onSelectCandidate(index) }
         }
         keyboardView = KeyboardView(this).apply {
             onKey = { action -> onKeyAction(action) }
+            setMode(asciiMode, schemaName) // 空格键显示方案名/abc
         }
 
-        root.addView(statusView)
+        root.addView(codeRow, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(40)))
         root.addView(candidateBar)
         root.addView(keyboardView)
-        lastStatus = "" // 新 View，必须重设文本
-        updateStatus()
+        lastCode = "" // 新 View，必须重设文本
+        lastLatency = ""
+        updateCodeRow()
         return root
     }
 
@@ -203,7 +236,8 @@ class HeximeService : InputMethodService() {
                 Log.e(TAG, "engine initialize failed")
             }
             main.post {
-                updateStatus()
+                keyboardView?.setMode(asciiMode, schemaName)
+                updateCodeRow()
                 refresh()
             }
         }
@@ -217,6 +251,8 @@ class HeximeService : InputMethodService() {
             ensureSession()
             main.post {
                 sessionPending = false
+                keyboardView?.setMode(asciiMode, schemaName)
+                updateCodeRow()
                 refresh()
             }
         }
@@ -263,12 +299,14 @@ class HeximeService : InputMethodService() {
             KeyAction.ToggleAscii -> {
                 asciiMode = !asciiMode
                 engine.setOption("ascii_mode", asciiMode)
+                // 空格键文字：中文显示方案名，英文显示 abc
+                keyboardView?.setMode(asciiMode, schemaName)
             }
             KeyAction.SwitchSchema -> {
                 schemaIndex = (schemaIndex + 1) % schemas.size
                 engine.selectSchema(schemas[schemaIndex])
                 schemaName = engine.currentSchema()
-                lastStatus = "" // 方案名变了，强制刷新状态栏
+                keyboardView?.setMode(asciiMode, schemaName)
             }
         }
         if (action is KeyAction.Sym && shiftOn) {
@@ -286,13 +324,15 @@ class HeximeService : InputMethodService() {
     }
 
     private fun refresh() {
-        updateStatus()
-        if (!ready) return
+        if (!ready) {
+            updateCodeRow() // 显示「部署中…」
+            return
+        }
         val commit = engine.takeCommit()
         val snapshot = engine.snapshot()
-        // 候选栏左侧显示当前编码，输入框里看不清时也能确认打了什么
-        candidateBar?.setComposition(snapshot.composition)
+        composition = snapshot.composition
         candidateBar?.setCandidates(snapshot.candidates)
+        updateCodeRow()
 
         val ic = currentInputConnection ?: return
         if (!commit.isNullOrEmpty()) {
@@ -301,25 +341,20 @@ class HeximeService : InputMethodService() {
         ic.setComposingText(snapshot.composition, 1)
     }
 
-    private fun updateStatus() {
-        val bar = statusView ?: return
-        val text = when {
-            !ready -> "部署中…（首次会编译词库）"
-            else -> buildString {
-                append(schemaName.ifEmpty { "—" })
-                append("  ·  ")
-                append(if (asciiMode) "英" else "中")
-                append("  ·  librime ")
-                append(rimeVersion)
-                if (showLatency) {
-                    append("  ·  跟手 ")
-                    append(latencyText.ifEmpty { "—" })
-                }
-            }
+    /** 顶部一行：左边当前编码，右边跟手延迟。内容没变就不 setText。 */
+    private fun updateCodeRow() {
+        val code = codeView ?: return
+        val text = if (!ready) "部署中…（首次会编译词库）" else composition
+        if (text != lastCode) {
+            lastCode = text
+            code.text = text
         }
-        if (text == lastStatus) return // 内容没变：不 setText，省 measure/layout/draw
-        lastStatus = text
-        bar.text = text
+        val latency =
+            if (showLatency && ready && latencyText.isNotEmpty()) "跟手 $latencyText" else ""
+        if (latency != lastLatency) {
+            lastLatency = latency
+            latencyView?.text = latency
+        }
     }
 
     private fun haptic() {
@@ -342,7 +377,7 @@ class HeximeService : InputMethodService() {
             if (latencyText.isEmpty() || Math.abs(ms - latencyMs) >= 0.05) {
                 latencyMs = ms
                 latencyText = "%.1f ms".format(ms)
-                updateStatus()
+                updateCodeRow()
             }
         }
     }

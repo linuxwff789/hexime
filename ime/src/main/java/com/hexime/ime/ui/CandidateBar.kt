@@ -1,7 +1,6 @@
 package com.hexime.ime.ui
 
 import android.content.Context
-import android.text.TextUtils
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
@@ -11,11 +10,9 @@ import android.widget.TextView
 import com.hexime.ime.engine.Candidate
 
 /**
- * 候选栏 = 上面一行「编码」+ 下面一行候选词。
+ * 候选栏：一行横向可滚动的候选词，高度固定（没有候选时也占住同样的高度，输入时不跳行高）。
  *
- * 编码单独占一整行，不和候选挤在一起：候选再多也不会把编码顶飞，
- * 输入框里字太小/被滚走时也能一眼看到自己打了什么。
- * 没有组合串时编码行自动隐藏（GONE），不占高度。
+ * 当前输入的编码不在这里显示 —— 它在上面那一行（原来是状态栏的位置，见 HeximeService）。
  *
  * 资源优化（打字热路径）：
  *  * 候选 TextView **池化复用**：按键不再 removeAllViews + 重建 N 个 View
@@ -23,39 +20,21 @@ import com.hexime.ime.engine.Candidate
  *  * 颜色/内边距/字号**只解析一次**，配色来自 [HeximeTheme]（跟随系统深色模式）。
  *  * 候选文本序列与上次相同则**整帧跳过**（不碰 View、不触发 requestLayout）。
  */
-class CandidateBar(context: Context) : LinearLayout(context) {
+class CandidateBar(context: Context) : HorizontalScrollView(context) {
 
     var onSelect: ((Int) -> Unit)? = null
 
     private val palette = HeximeTheme.of(context)
 
-    /** 上一行：当前输入的编码（组合串）。 */
-    private val codeView = TextView(context).apply {
-        setTextSize(TypedValue.COMPLEX_UNIT_SP, 18f)
-        setTextColor(palette.code)
-        setPadding(dp(12), dp(4), dp(12), dp(4))
-        gravity = Gravity.CENTER_VERTICAL
-        maxLines = 1
-        ellipsize = TextUtils.TruncateAt.END
-        visibility = GONE
-    }
-
-    /** 下一行：候选词，横向可滚动。 */
     private val row = LinearLayout(context).apply {
         orientation = HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL
-    }
-
-    private val scroller = HorizontalScrollView(context).apply {
-        isHorizontalScrollBarEnabled = false
-        addView(row, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.MATCH_PARENT))
     }
 
     // 只解析一次的样式
     private val padH = dp(14)
     private val padV = dp(6)
     private val textSizeSp = 20f
-    private val candidateRowHeight = dp(46)
 
     /** 视图池：row 里最多有多少个候选，就一直复用这些 TextView。 */
     private val pool = ArrayList<TextView>(10)
@@ -63,22 +42,13 @@ class CandidateBar(context: Context) : LinearLayout(context) {
     private val lastTexts = ArrayList<String>(10)
     /** 本次的候选文本（复用同一个 ArrayList，避免每次按键分配）。 */
     private val pending = ArrayList<String>(10)
-    private var lastComposition = ""
 
     init {
-        orientation = VERTICAL
+        isHorizontalScrollBarEnabled = false
         setBackgroundColor(palette.barBg)
-        addView(codeView, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
-        addView(scroller, LayoutParams(LayoutParams.MATCH_PARENT, candidateRowHeight))
-    }
-
-    /** 显示当前输入的编码（组合串）。空串则整行隐藏。 */
-    fun setComposition(text: String) {
-        if (text == lastComposition) return
-        lastComposition = text
-        codeView.text = text
-        codeView.visibility = if (text.isEmpty()) GONE else VISIBLE
-        if (scroller.scrollX != 0) scroller.scrollTo(0, 0)
+        // 固定高度：有没有候选都一样高，避免输入时整个键盘上下跳
+        minimumHeight = dp(46)
+        addView(row, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.MATCH_PARENT))
     }
 
     fun setCandidates(candidates: List<Candidate>) {
@@ -92,14 +62,12 @@ class CandidateBar(context: Context) : LinearLayout(context) {
 
         lastTexts.clear()
         lastTexts.addAll(pending)
-        if (scroller.scrollX != 0) scroller.scrollTo(0, 0)
+        if (scrollX != 0) scrollTo(0, 0)
     }
 
     fun clear() {
-        if (lastTexts.isEmpty() && codeView.visibility == GONE) return
         lastTexts.clear()
         for (view in pool) hide(view)
-        setComposition("")
     }
 
     private fun growPool(size: Int) {
