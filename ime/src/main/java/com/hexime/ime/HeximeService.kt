@@ -46,11 +46,11 @@ class HeximeService : InputMethodService() {
     private var candidateBar: CandidateBar? = null
     private var keyboardView: KeyboardView? = null
 
-    /** 可用方案：小鹤音形 / 拼音 / 笔画反查（stroke，候选栏「反查」按钮切这个）。 */
-    private val schemas = listOf(SCHEMA_OPENFLY, "luna_pinyin", SCHEMA_STROKE)
+    /** 可用方案：小鹤音形 / 拼音。 */
+    private val schemas = listOf(SCHEMA_OPENFLY, "luna_pinyin")
     private var schemaIndex = 0
 
-    /** 反查模式（当前是 stroke）与进入前的方案下标。 */
+    /** 反查模式（拼音反查方案）与进入前的方案下标。 */
     private var reverseLookup = false
     private var schemaIndexBeforeLookup = 0
 
@@ -240,6 +240,14 @@ class HeximeService : InputMethodService() {
                 ready = true
                 // 会话也在 io 线程建好（createSession 要加载编译好的词库，别放主线程）
                 ensureSession()
+                // 预热反查方案：librime 首次选中某方案要现编译词库（几秒），
+                // 在这里后台编好，之后点「反查」就是秒切。
+                if (ready) {
+                    val back = schemas[schemaIndex]
+                    engine.selectSchema(SCHEMA_LOOKUP)
+                    engine.selectSchema(back)
+                    Log.i(TAG, "reverse-lookup schema prewarmed")
+                }
                 Log.i(TAG, "engine ready, version=$rimeVersion")
             } else {
                 Log.e(TAG, "engine initialize failed")
@@ -332,21 +340,23 @@ class HeximeService : InputMethodService() {
         refresh()
     }
 
-    /** 反查：切到笔画方案，再按一次切回原方案（供候选栏「反查」按钮调用）。 */
+    /**
+     * 反查：切到「拼音反查」方案 luna_quanpin（它自己 schema 里写着「供形码用作拼音反查」），
+     * 再按一次切回原方案。
+     */
     private fun toggleReverseLookup() {
         if (!ready) return
-        val strokeIndex = schemas.indexOf(SCHEMA_STROKE)
-        if (strokeIndex < 0) return
-        if (!reverseLookup) {
-            schemaIndexBeforeLookup = schemaIndex
-            schemaIndex = strokeIndex
-        } else {
-            schemaIndex = schemaIndexBeforeLookup
+        val entering = !reverseLookup
+        if (entering) schemaIndexBeforeLookup = schemaIndex
+        val target = if (entering) SCHEMA_LOOKUP else schemas[schemaIndexBeforeLookup]
+        candidateBar?.setReverseLookupActive(entering) // 先点亮，方案切换失败再撤回
+        val ok = engine.selectSchema(target)
+        if (!ok) {
+            candidateBar?.setReverseLookupActive(reverseLookup)
+            return
         }
-        reverseLookup = !reverseLookup
-        engine.selectSchema(schemas[schemaIndex])
+        reverseLookup = entering
         schemaName = engine.currentSchema()
-        candidateBar?.setReverseLookupActive(reverseLookup)
         keyboardView?.setMode(asciiMode, schemaName)
         refresh()
     }
@@ -415,6 +425,8 @@ class HeximeService : InputMethodService() {
     private companion object {
         const val TAG = "HeximeService"
         const val SCHEMA_OPENFLY = "openfly"
-        const val SCHEMA_STROKE = "stroke"
+
+        /** 反查用方案：全拼（luna_quanpin），供音形码反查。 */
+        const val SCHEMA_LOOKUP = "luna_quanpin"
     }
 }

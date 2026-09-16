@@ -32,7 +32,7 @@ class CandidateBar(context: Context) : LinearLayout(context) {
     /** 下一页（候选下拉）。 */
     var onPageDown: (() -> Unit)? = null
 
-    /** 反查（切到笔画反查方案，再按一次切回）。 */
+    /** 反查（切到拼音反查方案，再按一次切回）。 */
     var onReverseLookup: (() -> Unit)? = null
 
     private val palette = HeximeTheme.of(context)
@@ -90,7 +90,7 @@ class CandidateBar(context: Context) : LinearLayout(context) {
         if (scroller.scrollX != 0) scroller.scrollTo(0, 0)
     }
 
-    /** 反查模式高亮（切到笔画反查方案时点亮）。 */
+    /** 反查模式高亮（切到反查方案时点亮）。 */
     fun setReverseLookupActive(active: Boolean) {
         if (active == lookupActive) return
         lookupActive = active
