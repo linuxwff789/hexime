@@ -71,9 +71,10 @@ class CandidateBar(context: Context) : LinearLayout(context) {
         // 固定高度：有没有候选都一样高，避免输入时整个键盘上下跳
         minimumHeight = dp(26)
         addView(scroller, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
-        addView(prevBtn)
-        addView(nextBtn)
-        addView(lookupBtn)
+        // 按钮撑满候选栏高度：点哪儿都算，不再只有文字那一小块
+        addView(prevBtn, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.MATCH_PARENT))
+        addView(nextBtn, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.MATCH_PARENT))
+        addView(lookupBtn, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.MATCH_PARENT))
     }
 
     fun setCandidates(candidates: List<Candidate>) {
