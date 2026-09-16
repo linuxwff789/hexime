@@ -231,7 +231,34 @@ class KeyboardView(context: Context) : LinearLayout(context) {
                 if (!key.rect.isEmpty && key.rect.contains(px, py)) return key
             }
         }
-        return null
+        // 兜底：点在键与键的缝隙、行与行的缝、空格底边这种地方时，
+        // 按「最近的一行 + 最近的键」算，别再出现点了个空（只有震动感没有字）。
+        val tol = TOUCH_SLOP_DP * resources.displayMetrics.density
+        var best: KeyHolder? = null
+        var bestScore = Float.MAX_VALUE
+        for (bucket in buckets) {
+            if (bucket.keys.isEmpty() || bucket.bottom < bucket.top) continue
+            val dy = when {
+                py < bucket.top -> (bucket.top - py).toFloat()
+                py > bucket.bottom -> (py - bucket.bottom).toFloat()
+                else -> 0f
+            }
+            if (dy > tol) continue
+            for (key in bucket.keys) {
+                if (key.rect.isEmpty) continue
+                val dx = when {
+                    px < key.rect.left -> (key.rect.left - px).toFloat()
+                    px > key.rect.right -> (px - key.rect.right).toFloat()
+                    else -> 0f
+                }
+                val score = dx + dy * 3f // 垂直方向更贵：优先认同一行的键
+                if (score < bestScore) {
+                    bestScore = score
+                    best = key
+                }
+            }
+        }
+        return best
     }
 
     override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
@@ -402,6 +429,9 @@ class KeyboardView(context: Context) : LinearLayout(context) {
 
     private companion object {
         const val LONG_PRESS_MS = 400L
+
+        /** 缝隙兜底命中的最大距离（dp）：键间距 6dp、行间距 6dp、键盘下沿 6dp 都能覆盖。 */
+        const val TOUCH_SLOP_DP = 12f
 
         /** 按键圆角半径（dp）。 */
         const val KEY_CORNER_RADIUS_DP = 8f

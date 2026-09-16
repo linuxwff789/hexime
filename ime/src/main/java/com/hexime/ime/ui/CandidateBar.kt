@@ -10,19 +10,30 @@ import android.widget.TextView
 import com.hexime.ime.engine.Candidate
 
 /**
- * 候选栏：一行横向可滚动的候选词，高度固定（没有候选时也占住同样的高度，输入时不跳行高）。
+ * 候选栏：左边一行横向可滚动的候选词，右边固定三个小按钮（上一页 / 下一页 / 反查）。
+ * 总高度固定（没有候选时也占住同样的高度，输入时不跳行高）。
  *
- * 当前输入的编码不在这里显示 —— 它在上面那一行（原来是状态栏的位置，见 HeximeService）。
+ * 当前输入的编码不在这里显示 —— 它在上面那一行（见 HeximeService）。
  *
  * 资源优化（打字热路径）：
  *  * 候选 TextView **池化复用**：按键不再 removeAllViews + 重建 N 个 View
  *    （旧实现每次按键都会 new N 个 TextView + 解析颜色 + LayoutParams + 监听器）。
  *  * 颜色/内边距/字号**只解析一次**，配色来自 [HeximeTheme]（跟随系统深色模式）。
  *  * 候选文本序列与上次相同则**整帧跳过**（不碰 View、不触发 requestLayout）。
+ *  * 右侧按钮是常驻的三个 TextView，只在状态变化时改颜色/文字。
  */
-class CandidateBar(context: Context) : HorizontalScrollView(context) {
+class CandidateBar(context: Context) : LinearLayout(context) {
 
     var onSelect: ((Int) -> Unit)? = null
+
+    /** 上一页。 */
+    var onPageUp: (() -> Unit)? = null
+
+    /** 下一页（候选下拉）。 */
+    var onPageDown: (() -> Unit)? = null
+
+    /** 反查（切到笔画反查方案，再按一次切回）。 */
+    var onReverseLookup: (() -> Unit)? = null
 
     private val palette = HeximeTheme.of(context)
 
@@ -30,6 +41,15 @@ class CandidateBar(context: Context) : HorizontalScrollView(context) {
         orientation = LinearLayout.HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL
     }
+
+    private val scroller = HorizontalScrollView(context).apply {
+        isHorizontalScrollBarEnabled = false
+        addView(row, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.MATCH_PARENT))
+    }
+
+    private val prevBtn = barButton("‹") { onPageUp?.invoke() }
+    private val nextBtn = barButton("›") { onPageDown?.invoke() }
+    private val lookupBtn = barButton("反查") { onReverseLookup?.invoke() }
 
     // 只解析一次的样式（高度压到 26dp，内边距和字号同步收小）
     private val padH = dp(10)
@@ -42,13 +62,18 @@ class CandidateBar(context: Context) : HorizontalScrollView(context) {
     private val lastTexts = ArrayList<String>(10)
     /** 本次的候选文本（复用同一个 ArrayList，避免每次按键分配）。 */
     private val pending = ArrayList<String>(10)
+    private var lookupActive = false
 
     init {
-        isHorizontalScrollBarEnabled = false
+        orientation = HORIZONTAL
+        gravity = Gravity.CENTER_VERTICAL
         setBackgroundColor(palette.barBg)
         // 固定高度：有没有候选都一样高，避免输入时整个键盘上下跳
         minimumHeight = dp(26)
-        addView(row, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.MATCH_PARENT))
+        addView(scroller, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
+        addView(prevBtn)
+        addView(nextBtn)
+        addView(lookupBtn)
     }
 
     fun setCandidates(candidates: List<Candidate>) {
@@ -62,7 +87,14 @@ class CandidateBar(context: Context) : HorizontalScrollView(context) {
 
         lastTexts.clear()
         lastTexts.addAll(pending)
-        if (scrollX != 0) scrollTo(0, 0)
+        if (scroller.scrollX != 0) scroller.scrollTo(0, 0)
+    }
+
+    /** 反查模式高亮（切到笔画反查方案时点亮）。 */
+    fun setReverseLookupActive(active: Boolean) {
+        if (active == lookupActive) return
+        lookupActive = active
+        lookupBtn.setTextColor(if (active) palette.code else palette.barDim)
     }
 
     fun clear() {
@@ -96,6 +128,17 @@ class CandidateBar(context: Context) : HorizontalScrollView(context) {
     private fun hide(view: TextView) {
         if (view.visibility != View.GONE) view.visibility = View.GONE
     }
+
+    private fun barButton(label: String, onClick: () -> Unit): TextView =
+        TextView(context).apply {
+            text = label
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
+            setTextColor(palette.barDim)
+            gravity = Gravity.CENTER
+            setPadding(dp(8), 0, dp(8), 0)
+            isClickable = true
+            setOnClickListener { onClick() }
+        }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
 }

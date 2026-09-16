@@ -46,8 +46,13 @@ class HeximeService : InputMethodService() {
     private var candidateBar: CandidateBar? = null
     private var keyboardView: KeyboardView? = null
 
-    private val schemas = listOf("openfly", "luna_pinyin")
+    /** 可用方案：小鹤音形 / 拼音 / 笔画反查（stroke，候选栏「反查」按钮切这个）。 */
+    private val schemas = listOf(SCHEMA_OPENFLY, "luna_pinyin", SCHEMA_STROKE)
     private var schemaIndex = 0
+
+    /** 反查模式（当前是 stroke）与进入前的方案下标。 */
+    private var reverseLookup = false
+    private var schemaIndexBeforeLookup = 0
 
     private var shiftOn = false
     private var asciiMode = false
@@ -162,6 +167,10 @@ class HeximeService : InputMethodService() {
         }
         candidateBar = CandidateBar(this).apply {
             onSelect = { index -> onSelectCandidate(index) }
+            onPageUp = { onKeyAction(KeyAction.Sym(InputEngine.KEY_PAGE_UP)) }
+            onPageDown = { onKeyAction(KeyAction.Sym(InputEngine.KEY_PAGE_DOWN)) }
+            onReverseLookup = { toggleReverseLookup() }
+            setReverseLookupActive(reverseLookup)
         }
         keyboardView = KeyboardView(this).apply {
             onKey = { action -> onKeyAction(action) }
@@ -323,6 +332,25 @@ class HeximeService : InputMethodService() {
         refresh()
     }
 
+    /** 反查：切到笔画方案，再按一次切回原方案（供候选栏「反查」按钮调用）。 */
+    private fun toggleReverseLookup() {
+        if (!ready) return
+        val strokeIndex = schemas.indexOf(SCHEMA_STROKE)
+        if (strokeIndex < 0) return
+        if (!reverseLookup) {
+            schemaIndexBeforeLookup = schemaIndex
+            schemaIndex = strokeIndex
+        } else {
+            schemaIndex = schemaIndexBeforeLookup
+        }
+        reverseLookup = !reverseLookup
+        engine.selectSchema(schemas[schemaIndex])
+        schemaName = engine.currentSchema()
+        candidateBar?.setReverseLookupActive(reverseLookup)
+        keyboardView?.setMode(asciiMode, schemaName)
+        refresh()
+    }
+
     private fun refresh() {
         if (!ready) {
             updateCodeRow() // 显示「部署中…」
@@ -386,5 +414,7 @@ class HeximeService : InputMethodService() {
 
     private companion object {
         const val TAG = "HeximeService"
+        const val SCHEMA_OPENFLY = "openfly"
+        const val SCHEMA_STROKE = "stroke"
     }
 }
