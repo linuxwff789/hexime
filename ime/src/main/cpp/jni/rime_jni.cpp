@@ -190,21 +190,36 @@ Java_com_hexime_ime_engine_RimeNative_candidates(JNIEnv* env, jobject, jlong sid
   return to_string_array(env, out);
 }
 
-JNIEXPORT jintArray JNICALL
-Java_com_hexime_ime_engine_RimeNative_pageInfo(JNIEnv* env, jobject, jlong sid) {
+/** 一次 JNI 调用取回「组合串 + 候选列表」，用 \x01 分隔、\t 分 text/comment。
+ *
+ *  为什么要合并：旧实现每键调 composition() + candidates() + pageInfo() 三次 JNI，
+ *  其中 candidates() 和 pageInfo() 各自做一次 get_context()（每次都会把候选菜单
+ *  整份拷进 RIME_STRUCT）。合并成一个调用后每键只剩一次 JNI + 一次 get_context，
+ *  也省掉了 Java 侧的 String[]、IntArray 以及 vector<string> 的分配。 */
+JNIEXPORT jstring JNICALL
+Java_com_hexime_ime_engine_RimeNative_sessionText(JNIEnv* env, jobject, jlong sid) {
   RimeApi* rime = api();
-  jint values[2] = {0, 1};
-  if (rime != nullptr) {
-    RIME_STRUCT(RimeContext, ctx);
-    if (rime->get_context(static_cast<RimeSessionId>(sid), &ctx)) {
-      values[0] = ctx.menu.page_no;
-      values[1] = ctx.menu.is_last_page ? 1 : 0;
-      rime->free_context(&ctx);
+  if (rime == nullptr) return env->NewStringUTF("");
+
+  RIME_STRUCT(RimeContext, ctx);
+  if (!rime->get_context(static_cast<RimeSessionId>(sid), &ctx)) {
+    return env->NewStringUTF("");
+  }
+
+  std::string out;
+  out.reserve(256);
+  if (ctx.composition.preedit != nullptr) out.assign(ctx.composition.preedit);
+  for (int i = 0; i < ctx.menu.num_candidates; ++i) {
+    const RimeCandidate& c = ctx.menu.candidates[i];
+    out.push_back('\x01');
+    if (c.text != nullptr) out.append(c.text);
+    if (c.comment != nullptr && c.comment[0] != '\0') {
+      out.push_back('\t');
+      out.append(c.comment);
     }
   }
-  jintArray result = env->NewIntArray(2);
-  env->SetIntArrayRegion(result, 0, 2, values);
-  return result;
+  rime->free_context(&ctx);
+  return env->NewStringUTF(out.c_str());
 }
 
 JNIEXPORT jstring JNICALL

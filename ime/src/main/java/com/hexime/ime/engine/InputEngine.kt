@@ -7,8 +7,6 @@ data class Candidate(val text: String, val comment: String = "")
 data class EngineSnapshot(
     val composition: String = "",
     val candidates: List<Candidate> = emptyList(),
-    val pageNo: Int = 0,
-    val isLastPage: Boolean = true,
 )
 
 /**

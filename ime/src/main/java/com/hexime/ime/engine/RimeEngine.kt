@@ -55,23 +55,21 @@ class RimeEngine : InputEngine {
 
     override fun snapshot(): EngineSnapshot {
         if (sessionId == 0L) return EngineSnapshot()
-        val composition = RimeNative.composition(sessionId)
-        val raw = RimeNative.candidates(sessionId)
-        val candidates = raw.map { item ->
+        // 一次 JNI 取回组合串 + 候选：旧实现是 composition()/candidates()/pageInfo()
+        // 三次往返 + 两次 get_context()，而 pageInfo 的结果全仓没人用。
+        val parts = RimeNative.sessionText(sessionId).split(SEP)
+        val composition = parts[0]
+        val candidates = ArrayList<Candidate>(parts.size - 1)
+        for (i in 1 until parts.size) {
+            val item = parts[i]
             val tab = item.indexOf('\t')
             if (tab >= 0) {
-                Candidate(item.substring(0, tab), item.substring(tab + 1))
+                candidates.add(Candidate(item.substring(0, tab), item.substring(tab + 1)))
             } else {
-                Candidate(item)
+                candidates.add(Candidate(item))
             }
         }
-        val page = RimeNative.pageInfo(sessionId)
-        return EngineSnapshot(
-            composition = composition,
-            candidates = candidates,
-            pageNo = page.getOrElse(0) { 0 },
-            isLastPage = page.getOrElse(1) { 1 } != 0,
-        )
+        return EngineSnapshot(composition = composition, candidates = candidates)
     }
 
     override fun takeCommit(): String? {
@@ -110,5 +108,8 @@ class RimeEngine : InputEngine {
 
     private companion object {
         const val TAG = "HeximeEngine"
+
+        /** 与 cpp 侧 sessionText 的分隔符保持一致。 */
+        const val SEP = '\u0001'
     }
 }

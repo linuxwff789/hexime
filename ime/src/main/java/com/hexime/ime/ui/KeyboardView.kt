@@ -305,7 +305,7 @@ class KeyboardView(context: Context) : LinearLayout(context) {
         row.addView(tv, lp)
         val holder = KeyHolder(tv, action)
         keys.add(holder)
-        currentBucket?.keys.add(holder)
+        currentBucket?.keys?.add(holder)
         return tv
     }
 

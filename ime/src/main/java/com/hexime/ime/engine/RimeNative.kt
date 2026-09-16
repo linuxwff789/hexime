@@ -34,8 +34,11 @@ object RimeNative {
     /** 元素格式 "text\tcomment"。 */
     external fun candidates(sessionId: Long): Array<String>
 
-    /** [pageNo, isLastPage]。 */
-    external fun pageInfo(sessionId: Long): IntArray
+    /**
+     * 一次 JNI 取回组合串 + 候选列表，减少每键的 JNI 往返与 get_context 次数。
+     * 格式："组合串\u0001候选1[\t注释]\u0001候选2..."（无候选时为 "组合串"）。
+     */
+    external fun sessionText(sessionId: Long): String
 
     external fun commit(sessionId: Long): String
 
