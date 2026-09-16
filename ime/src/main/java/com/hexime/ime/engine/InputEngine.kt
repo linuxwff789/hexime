@@ -67,6 +67,9 @@ interface InputEngine {
         const val KEY_PAGE_UP = 0xFF55
         const val KEY_PAGE_DOWN = 0xFF56
 
+        /** X11 keysym：反引号 `（反查引导符）。 */
+        const val KEY_GRAVE = 0x0060
+
         const val MASK_SHIFT = 1 shl 0
         const val MASK_LOCK = 1 shl 1
         const val MASK_CONTROL = 1 shl 2

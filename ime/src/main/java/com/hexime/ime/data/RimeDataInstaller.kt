@@ -16,7 +16,7 @@ object RimeDataInstaller {
     private const val TAG = "HeximeData"
 
     /** 数据版本：改了 assets 内容就 +1，触发重新释放。 */
-    private const val DATA_VERSION = 2
+    private const val DATA_VERSION = 3
 
     fun sharedDir(context: Context): File = File(context.filesDir, "rime/shared")
     fun userDir(context: Context): File = File(context.filesDir, "rime/user")

@@ -95,6 +95,28 @@ engine:
     - fallback_segmentor
   translators:
     - table_translator
+    - reverse_lookup_translator@reverse_lookup
+  filters:
+    - reverse_lookup_filter@fancha
+
+# 反查：输入 ` 引导的拼音（如 `nihao），出汉字并把该字的音形码放进注释。
+# 全程在 openfly 这一个方案里完成，不切到别的方案。
+reverse_lookup:
+  # 用已编译好的 luna_pinyin 词库做拼音→字的反查
+  # （prelude 里的 pinyin.yaml 是模糊音模板，不是码表，不能当 dictionary 用）
+  dictionary: luna_pinyin
+  prefix: "`"
+  suffix: "'"
+  tips: 〔反查〕
+
+fancha:
+  tags: [ reverse_lookup ]
+  dictionary: openfly
+  overwrite_comment: true
+
+recognizer:
+  patterns:
+    reverse_lookup: "`[a-z]*'?$"
 
 speller:
   alphabet: '/;zyxwvutsrqponmlkjihgfedcba'

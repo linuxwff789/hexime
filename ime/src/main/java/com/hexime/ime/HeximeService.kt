@@ -50,9 +50,8 @@ class HeximeService : InputMethodService() {
     private val schemas = listOf(SCHEMA_OPENFLY, "luna_pinyin")
     private var schemaIndex = 0
 
-    /** 反查模式（拼音反查方案）与进入前的方案下标。 */
+    /** 反查状态：组合串以 ` 开头（由候选栏「反查」按钮插入）。 */
     private var reverseLookup = false
-    private var schemaIndexBeforeLookup = 0
 
     private var shiftOn = false
     private var asciiMode = false
@@ -240,14 +239,6 @@ class HeximeService : InputMethodService() {
                 ready = true
                 // 会话也在 io 线程建好（createSession 要加载编译好的词库，别放主线程）
                 ensureSession()
-                // 预热反查方案：librime 首次选中某方案要现编译词库（几秒），
-                // 在这里后台编好，之后点「反查」就是秒切。
-                if (ready) {
-                    val back = schemas[schemaIndex]
-                    engine.selectSchema(SCHEMA_LOOKUP)
-                    engine.selectSchema(back)
-                    Log.i(TAG, "reverse-lookup schema prewarmed")
-                }
                 Log.i(TAG, "engine ready, version=$rimeVersion")
             } else {
                 Log.e(TAG, "engine initialize failed")
@@ -341,24 +332,14 @@ class HeximeService : InputMethodService() {
     }
 
     /**
-     * 反查：切到「拼音反查」方案 luna_quanpin（它自己 schema 里写着「供形码用作拼音反查」），
-     * 再按一次切回原方案。
+     * 反查：在**当前方案**里插入反查引导符 `（方案里配了 reverse_lookup 处理器，
+     * 后面打拼音就能出字并显示音形码），不切方案。
+     * 已经在组合中则清空，相当于取消。
      */
     private fun toggleReverseLookup() {
         if (!ready) return
-        val entering = !reverseLookup
-        if (entering) schemaIndexBeforeLookup = schemaIndex
-        val target = if (entering) SCHEMA_LOOKUP else schemas[schemaIndexBeforeLookup]
-        candidateBar?.setReverseLookupActive(entering) // 先点亮，方案切换失败再撤回
-        val ok = engine.selectSchema(target)
-        if (!ok) {
-            candidateBar?.setReverseLookupActive(reverseLookup)
-            return
-        }
-        reverseLookup = entering
-        schemaName = engine.currentSchema()
-        keyboardView?.setMode(asciiMode, schemaName)
-        refresh()
+        val key = if (composition.isEmpty()) InputEngine.KEY_GRAVE else InputEngine.KEY_ESCAPE
+        onKeyAction(KeyAction.Sym(key))
     }
 
     private fun refresh() {
@@ -369,6 +350,9 @@ class HeximeService : InputMethodService() {
         val commit = engine.takeCommit()
         val snapshot = engine.snapshot()
         composition = snapshot.composition
+        // 组合串以 ` 开头 = 正在反查，点亮候选栏的「反查」按钮
+        reverseLookup = composition.startsWith("`")
+        candidateBar?.setReverseLookupActive(reverseLookup)
         candidateBar?.setCandidates(snapshot.candidates)
         updateCodeRow()
 
@@ -425,8 +409,5 @@ class HeximeService : InputMethodService() {
     private companion object {
         const val TAG = "HeximeService"
         const val SCHEMA_OPENFLY = "openfly"
-
-        /** 反查用方案：全拼（luna_quanpin），供音形码反查。 */
-        const val SCHEMA_LOOKUP = "luna_quanpin"
     }
 }
