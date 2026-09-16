@@ -1,6 +1,6 @@
 package com.hexime.ime
 
-import android.graphics.Color
+import android.content.res.Configuration
 import android.inputmethodservice.InputMethodService
 import android.os.Build
 import android.os.Handler
@@ -22,6 +22,7 @@ import com.hexime.ime.data.RimeDataInstaller
 import com.hexime.ime.engine.InputEngine
 import com.hexime.ime.engine.RimeEngine
 import com.hexime.ime.ui.CandidateBar
+import com.hexime.ime.ui.HeximeTheme
 import com.hexime.ime.ui.KeyAction
 import com.hexime.ime.ui.KeyboardView
 import java.util.concurrent.Executors
@@ -80,21 +81,44 @@ class HeximeService : InputMethodService() {
         }
     }
 
+    /** 用于判断系统深色模式是否变化（变化时重建输入视图换配色）。 */
+    private var lastNight = false
+
     override fun onCreate() {
         super.onCreate()
         showLatency = HeximeSettings.showLatency(this)
+        lastNight = HeximeTheme.isNight(this)
         bootstrapEngine()
+    }
+
+    /** 系统切深浅色时重建输入视图（配色跟着走）。 */
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        val night = (newConfig.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
+            Configuration.UI_MODE_NIGHT_YES
+        if (night != lastNight) {
+            lastNight = night
+            appliedKeyHeight = -1 // 让下次 onStartInputView 也按新配色重建
+            lastStatus = ""
+            statusView = null
+            setInputView(onCreateInputView())
+            refresh()
+        }
     }
 
     // ---------------------------------------------------------------- 生命周期
 
     override fun onCreateInputView(): View {
-        val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val palette = HeximeTheme.of(this)
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(palette.keyboardBg)
+        }
 
         statusView = TextView(this).apply {
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
-            setTextColor(Color.parseColor("#607D8B"))
-            setBackgroundColor(Color.parseColor("#ECEFF1"))
+            setTextColor(palette.statusText)
+            setBackgroundColor(palette.statusBg)
             setPadding(dp(10), dp(3), dp(10), dp(3))
             // 点状态栏切换跟手延迟显示
             isClickable = true
@@ -266,6 +290,8 @@ class HeximeService : InputMethodService() {
         if (!ready) return
         val commit = engine.takeCommit()
         val snapshot = engine.snapshot()
+        // 候选栏左侧显示当前编码，输入框里看不清时也能确认打了什么
+        candidateBar?.setComposition(snapshot.composition)
         candidateBar?.setCandidates(snapshot.candidates)
 
         val ic = currentInputConnection ?: return

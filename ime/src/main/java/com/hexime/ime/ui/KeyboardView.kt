@@ -1,9 +1,7 @@
 package com.hexime.ime.ui
 
 import android.content.Context
-import android.graphics.Color
 import android.graphics.Rect
-import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.StateListDrawable
 import android.os.Handler
 import android.os.Looper
@@ -52,6 +50,9 @@ class KeyboardView(context: Context) : LinearLayout(context) {
     private val keyHeightPx: Int =
         (HeximeSettings.keyboardHeightDp(context) * resources.displayMetrics.density).toInt()
 
+    /** 配色（跟随系统深色模式），两套见 [HeximeTheme]。 */
+    private val palette = HeximeTheme.of(context)
+
     private val letterViews = LinkedHashMap<Char, TextView>()
 
     private class KeyHolder(val view: TextView, val action: () -> KeyAction) {
@@ -75,7 +76,7 @@ class KeyboardView(context: Context) : LinearLayout(context) {
 
     init {
         orientation = VERTICAL
-        setBackgroundColor(BACKGROUND)
+        setBackgroundColor(palette.keyboardBg)
         setPadding(dp(4), dp(6), dp(4), dp(6))
         build()
     }
@@ -292,7 +293,7 @@ class KeyboardView(context: Context) : LinearLayout(context) {
         val tv = TextView(context).apply {
             this.text = text
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 19f)
-            setTextColor(TEXT_COLOR)
+            setTextColor(palette.keyText)
             gravity = Gravity.CENTER
             setPadding(0, 0, 0, 0)
             background = keyBackground()
@@ -310,8 +311,9 @@ class KeyboardView(context: Context) : LinearLayout(context) {
     }
 
     private fun keyBackground(): StateListDrawable = StateListDrawable().apply {
-        addState(intArrayOf(android.R.attr.state_pressed), KEY_BG_PRESSED)
-        addState(intArrayOf(), KEY_BG_NORMAL)
+        // ColorDrawable 按配色缓存、全键盘共享（见 HeximeTheme.Palette）
+        addState(intArrayOf(android.R.attr.state_pressed), palette.keyPressedDrawable)
+        addState(intArrayOf(), palette.keyFaceDrawable)
     }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
@@ -320,11 +322,5 @@ class KeyboardView(context: Context) : LinearLayout(context) {
         val ROW1 = listOf('q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p')
         val ROW2 = listOf('a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l')
         val ROW3 = listOf('z', 'x', 'c', 'v', 'b', 'n', 'm')
-
-        // ColorDrawable 无状态（不受 bounds/state 影响），可以全局共享
-        val KEY_BG_NORMAL = ColorDrawable(Color.parseColor("#FFFFFF"))
-        val KEY_BG_PRESSED = ColorDrawable(Color.parseColor("#90A4AE"))
-        val BACKGROUND = Color.parseColor("#CFD8DC")
-        val TEXT_COLOR = Color.parseColor("#212121")
     }
 }

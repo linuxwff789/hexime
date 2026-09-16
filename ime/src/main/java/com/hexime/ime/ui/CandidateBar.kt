@@ -1,37 +1,56 @@
 package com.hexime.ime.ui
 
 import android.content.Context
-import android.graphics.Color
 import android.util.TypedValue
 import android.view.Gravity
+import android.view.View
 import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import android.widget.TextView
 import com.hexime.ime.engine.Candidate
 
 /**
- * 极简候选栏：一行横向可滚动，点击选词。
+ * 候选栏 = 左侧「编码」+ 右侧可滚动的候选词。
+ *
+ * 编码（preedit）单独放在最左边，候选词再多也不会把编码挤走 ——
+ * 输入框里字太小/被滚走时也能看到自己打了什么。
  *
  * 资源优化（打字热路径）：
  *  * 候选 TextView **池化复用**：按键不再 removeAllViews + 重建 N 个 View
- *    （旧实现每次按键都会 new N 个 TextView + Color.parseColor + dp() + 监听器）。
- *  * 颜色/内边距/字号**只解析一次**，缓存在字段里。
- *  * 候选文本序列与上次相同则**整帧跳过**（不碰 View、不触发 requestLayout），
- *    连续按键时绝大多数情况都命中这条路径。
+ *    （旧实现每次按键都会 new N 个 TextView + 解析颜色 + LayoutParams + 监听器）。
+ *  * 颜色/内边距/字号**只解析一次**，配色来自 [HeximeTheme]（跟随系统深色模式）。
+ *  * 候选文本序列与上次相同则**整帧跳过**（不碰 View、不触发 requestLayout）。
  */
-class CandidateBar(context: Context) : HorizontalScrollView(context) {
-
-    private val row = LinearLayout(context).apply {
-        orientation = LinearLayout.HORIZONTAL
-        gravity = Gravity.CENTER_VERTICAL
-        minimumHeight = dp(46)
-    }
+class CandidateBar(context: Context) : LinearLayout(context) {
 
     var onSelect: ((Int) -> Unit)? = null
 
+    private val palette = HeximeTheme.of(context)
+
+    /** 左侧编码显示。 */
+    private val codeView = TextView(context).apply {
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, 20f)
+        setTextColor(palette.code)
+        setPadding(dp(12), 0, dp(8), 0)
+        gravity = Gravity.CENTER_VERTICAL
+        maxLines = 1
+        visibility = GONE
+        // 编码长了自己截断，不挤压候选区
+        ellipsize = android.text.TextUtils.TruncateAt.START
+        maxWidth = dp(360)
+    }
+
+    private val row = LinearLayout(context).apply {
+        orientation = HORIZONTAL
+        gravity = Gravity.CENTER_VERTICAL
+    }
+
+    private val scroller = HorizontalScrollView(context).apply {
+        isHorizontalScrollBarEnabled = false
+        addView(row, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.MATCH_PARENT))
+    }
+
     // 只解析一次的样式
-    private val barColor = Color.parseColor("#ECEFF1")
-    private val textColor = Color.parseColor("#212121")
     private val padH = dp(14)
     private val padV = dp(6)
     private val textSizeSp = 20f
@@ -42,14 +61,25 @@ class CandidateBar(context: Context) : HorizontalScrollView(context) {
     private val lastTexts = ArrayList<String>(10)
     /** 本次的候选文本（复用同一个 ArrayList，避免每次按键分配）。 */
     private val pending = ArrayList<String>(10)
+    private var lastComposition = ""
 
     init {
-        isHorizontalScrollBarEnabled = false
-        setBackgroundColor(barColor)
-        addView(
-            row,
-            LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.MATCH_PARENT),
-        )
+        orientation = HORIZONTAL
+        gravity = Gravity.CENTER_VERTICAL
+        setBackgroundColor(palette.barBg)
+        minimumHeight = dp(46)
+        addView(codeView)
+        addView(scroller, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
+    }
+
+    /** 显示当前输入的编码（组合串）。空串则隐藏。 */
+    fun setComposition(text: String) {
+        if (text == lastComposition) return
+        lastComposition = text
+        codeView.text = text
+        codeView.visibility = if (text.isEmpty()) GONE else VISIBLE
+        // 编码出现/消失会改变左侧宽度，候选区重新布局一次即可
+        if (scrollX != 0) scroller.scrollTo(0, 0)
     }
 
     fun setCandidates(candidates: List<Candidate>) {
@@ -63,20 +93,21 @@ class CandidateBar(context: Context) : HorizontalScrollView(context) {
 
         lastTexts.clear()
         lastTexts.addAll(pending)
-        if (scrollX != 0) scrollTo(0, 0)
+        if (scroller.scrollX != 0) scroller.scrollTo(0, 0)
     }
 
     fun clear() {
-        if (lastTexts.isEmpty() && pool.isEmpty()) return
+        if (lastTexts.isEmpty() && codeView.visibility == GONE) return
         lastTexts.clear()
         for (view in pool) hide(view)
+        setComposition("")
     }
 
     private fun growPool(size: Int) {
         while (pool.size < size) {
             val tv = TextView(context).apply {
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, textSizeSp)
-                setTextColor(textColor)
+                setTextColor(palette.barText)
                 setPadding(padH, padV, padH, padV)
                 gravity = Gravity.CENTER
                 isClickable = true
@@ -96,9 +127,8 @@ class CandidateBar(context: Context) : HorizontalScrollView(context) {
     }
 
     private fun hide(view: TextView) {
-        if (view.visibility != GONE) view.visibility = GONE
+        if (view.visibility != View.GONE) view.visibility = View.GONE
     }
 
-    private fun dp(value: Int): Int =
-        (value * resources.displayMetrics.density).toInt()
+    private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
 }
