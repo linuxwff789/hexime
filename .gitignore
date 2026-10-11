@@ -28,3 +28,7 @@ ime/rime-extra/
 *.apk
 *.aab
 .DS_Store
+
+# python 工具缓存
+tools/__pycache__/
+__pycache__/
