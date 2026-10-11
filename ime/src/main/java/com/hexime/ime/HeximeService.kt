@@ -242,6 +242,9 @@ class HeximeService : InputMethodService() {
             appliedPaletteId = paletteId
             setInputView(onCreateInputView())
         }
+        // 设置里改了方案 → 跟上（当前会话还在用旧方案的话）
+        val wanted = HeximeSettings.schemaId(this)
+        if (ready && engine.hasSession() && wanted != engine.currentSchema()) applySchema(wanted)
         ensureSession()
         refresh()
     }
