@@ -199,7 +199,7 @@ Java_com_hexime_ime_engine_RimeNative_snapshot(JNIEnv* env, jobject, jlong sid) 
   if (rime != nullptr) {
     RIME_STRUCT(RimeContext, ctx);
     if (rime->get_context(static_cast<RimeSessionId>(sid), &ctx)) {
-      out.emplace_back(ctx.composition ? ctx.composition : "");
+      out.emplace_back(ctx.composition.preedit ? ctx.composition.preedit : "");
       out.emplace_back(std::to_string(ctx.menu.page_no));
       out.emplace_back(ctx.menu.is_last_page ? "1" : "0");
       for (int i = 0; i < ctx.menu.num_candidates; ++i) {
