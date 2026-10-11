@@ -152,7 +152,8 @@ def main():
             for k in ("pageBg", "keyboardBg", "keyFace", "keyText", "keyPressed",
                       "keyPressedText", "candidateBg", "candidateText",
                       "candidateComment", "candidatePressed"):
-                lines.append(f"            {k} = {p[k]},")
+                # 0xFF...... 超过 Int 范围，Kotlin 会推成 Long → 必须显式 .toInt()
+                lines.append(f"            {k} = {p[k]}.toInt(),")
             lines.append("        ),")
         lines += [
             "    )",
