@@ -186,12 +186,14 @@ class MainActivity : Activity() {
             })
         })
 
-        setContentView(
-            ScrollView(this).apply {
-                setBackgroundColor(c.surface)
-                addView(root)
-            },
-        )
+        val scroll = ScrollView(this).apply {
+            setBackgroundColor(c.surface)
+            // 自己可聚焦：否则「测试输入」的 EditText 会自动抢焦点，一进设置页键盘就弹出来盖住半页
+            isFocusableInTouchMode = true
+            addView(root)
+        }
+        setContentView(scroll)
+        scroll.requestFocus()
         refreshStatus()
     }
 
