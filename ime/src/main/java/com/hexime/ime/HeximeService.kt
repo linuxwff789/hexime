@@ -255,14 +255,30 @@ class HeximeService : InputMethodService() {
         }
     }
 
-    /** 按键序列宏，如 `{End}{Shift+Home}{Delete}`（小鹤的「Del↔」「复制」等键）。 */
+    /** 按键序列 / 文本宏，如 `{End}{Shift+Home}{Delete}`、`“”{Left}`。 */
     private fun sendKeyMacro(macro: String) {
+        val ic = currentInputConnection ?: return
+        val literal = StringBuilder()
+        fun flush() {
+            if (literal.isNotEmpty()) {
+                ic.commitText(literal.toString(), 1)
+                literal.setLength(0)
+            }
+        }
         var i = 0
         while (i < macro.length) {
             val open = macro.indexOf('{', i)
-            if (open < 0) break
+            if (open < 0) {
+                literal.append(macro, i, macro.length)
+                break
+            }
+            if (open > i) literal.append(macro, i, open)
             val close = macro.indexOf('}', open)
-            if (close < 0) break
+            if (close < 0) {
+                literal.append(macro, open, macro.length)
+                break
+            }
+            flush()
             val parts = macro.substring(open + 1, close).split('+')
             i = close + 1
             var meta = 0
@@ -277,6 +293,7 @@ class HeximeService : InputMethodService() {
             val code = MACRO_KEYCODE[parts.last()] ?: continue
             sendKeyWithMeta(code, meta)
         }
+        flush()
     }
 
     private fun sendKeyWithMeta(keyCode: Int, meta: Int) {

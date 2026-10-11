@@ -86,19 +86,25 @@ local function to_action(c)
     local mod, rest = c:match("^(%a+)%+(.+)$")
     if mod == "Control" then return { k = "ctrl", v = rest } end
     if mod == "Shift" then return { k = "sym", v = rest, mask = "shift" } end
-    if #c == 1 then return { k = "sym", v = c } end
+    -- 单字节 ASCII → 按键（字母/数字/符号，交给 rime 处理）
+    if #c == 1 and c:byte(1) < 128 then return { k = "sym", v = c } end
+    local kp = c:match("^KP_(%d)$")
+    if kp then return { k = "sym", v = kp } end
     -- 旧 preset 名 → hexime 键盘 id / 动作
     if c == "Keyboard_default" then return { k = "kb", v = "default" } end
-    if c == "Keyboard_symbols" then return { k = "kb", v = "symbols" } end
+    if c == "Keyboard_symbols" or c == "Keyboard_symbols_ext" then return { k = "kb", v = "symbols" } end
     if c == "Keyboard_number" then return { k = "kb", v = "number" } end
     if c == "BACK" then return { k = "kb", v = "default" } end
     if c == "SETTINGS" then return { k = "cmd", v = "settings" } end
-    if c == "Eisu_toggle" then return { k = "toggle", v = "ascii_mode" } end
-    if c == "Mode_switch" then return { k = "toggle", v = "ascii_mode" } end
+    if c == "Eisu_toggle" or c == "Mode_switch" then return { k = "toggle", v = "ascii_mode" } end
     if c == "Menu" or c == "VOICE_ASSIST" or c == "PROG_RED" or c == "function" then
       return { k = "none" }
     end
-    return { k = "key", v = c }
+    if c == "space1" or c == "Space" then return { k = "key", v = "space" } end
+    if NAMED[c] then return { k = "key", v = c } end
+    -- 其余都是「要上屏的文本」：小鹤的成对标点、音标、颜文字、emoji…
+    -- （可能有 {Left} 这类按键宏，由 hexime 的 sendKeyMacro 拆）
+    return { k = "text", v = c }
   end
 
   if t == "table" then
