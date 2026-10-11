@@ -190,6 +190,29 @@ Java_com_hexime_ime_engine_RimeNative_candidates(JNIEnv* env, jobject, jlong sid
   return to_string_array(env, out);
 }
 
+JNIEXPORT jobjectArray JNICALL
+Java_com_hexime_ime_engine_RimeNative_snapshot(JNIEnv* env, jobject, jlong sid) {
+  // 一次 JNI 拿齐按键后要刷新的全部状态（原来是 composition/candidates/pageInfo 三次往返）：
+  //   [0] 组合串  [1] 页码  [2] 是否末页("1"/"0")  [3..] 候选文字
+  RimeApi* rime = api();
+  std::vector<std::string> out;
+  if (rime != nullptr) {
+    RIME_STRUCT(RimeContext, ctx);
+    if (rime->get_context(static_cast<RimeSessionId>(sid), &ctx)) {
+      out.emplace_back(ctx.composition ? ctx.composition : "");
+      out.emplace_back(std::to_string(ctx.menu.page_no));
+      out.emplace_back(ctx.menu.is_last_page ? "1" : "0");
+      for (int i = 0; i < ctx.menu.num_candidates; ++i) {
+        const RimeCandidate& c = ctx.menu.candidates[i];
+        // 只要 text：comment 界面不用，省一次拼接 + 一个 Java String
+        out.emplace_back(c.text ? c.text : "");
+      }
+      rime->free_context(&ctx);
+    }
+  }
+  return to_string_array(env, out);
+}
+
 JNIEXPORT jintArray JNICALL
 Java_com_hexime_ime_engine_RimeNative_pageInfo(JNIEnv* env, jobject, jlong sid) {
   RimeApi* rime = api();

@@ -37,6 +37,12 @@ object RimeNative {
     /** [pageNo, isLastPage]。 */
     external fun pageInfo(sessionId: Long): IntArray
 
+    /**
+     * 一次拿齐按键后要刷新的全部状态（省两次 JNI 往返）：
+     * `[0]` 组合串，`[1]` 页码，`[2]` 是否末页("1"/"0")，`[3..]` 候选文字。
+     */
+    external fun snapshot(sessionId: Long): Array<String>
+
     external fun commit(sessionId: Long): String
 
     external fun clearComposition(sessionId: Long)

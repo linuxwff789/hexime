@@ -55,20 +55,16 @@ class RimeEngine : InputEngine {
 
     override fun snapshot(): EngineSnapshot {
         if (sessionId == 0L) return EngineSnapshot()
-        val composition = RimeNative.composition(sessionId)
-        val raw = RimeNative.candidates(sessionId)
-        // 候选串是 "text\tcomment"，但界面只用 text（候选栏/加词都不看 comment）。
-        // 原来每个候选 indexOf + 两次 substring，现在只切一次，少一半字符串分配。
-        val candidates = raw.map { item ->
-            val tab = item.indexOf('\t')
-            if (tab >= 0) Candidate(item.substring(0, tab)) else Candidate(item)
-        }
-        val page = RimeNative.pageInfo(sessionId)
+        // 一次 JNI：[0] 组合串 [1] 页码 [2] 是否末页 [3..] 候选（原来要 composition/candidates/pageInfo 三次往返）
+        val raw = RimeNative.snapshot(sessionId)
+        if (raw.size < 3) return EngineSnapshot()
+        val candidates = ArrayList<Candidate>(raw.size - 3)
+        for (i in 3 until raw.size) candidates.add(Candidate(raw[i]))
         return EngineSnapshot(
-            composition = composition,
+            composition = raw[0],
             candidates = candidates,
-            pageNo = page.getOrElse(0) { 0 },
-            isLastPage = page.getOrElse(1) { 1 } != 0,
+            pageNo = raw[1].toIntOrNull() ?: 0,
+            isLastPage = raw[2] == "1",
         )
     }
 

@@ -2,6 +2,12 @@ package com.hexime.ime
 
 import android.app.Activity
 import android.content.Intent
+import android.content.res.ColorStateList
+import android.content.res.Configuration
+import android.graphics.Color
+import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.RippleDrawable
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -10,16 +16,17 @@ import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
 import android.provider.Settings
+import android.text.InputType
+import android.view.Gravity
 import android.view.View
+import android.view.ViewGroup
 import android.view.inputmethod.InputMethodManager
-import android.widget.AdapterView
-import android.widget.ArrayAdapter
 import android.widget.Button
-import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.SeekBar
-import android.widget.Spinner
+import android.widget.Switch
 import android.widget.TextView
 import com.hexime.ime.data.HeximeSettings
 import com.hexime.ime.data.RimeDataInstaller
@@ -27,152 +34,370 @@ import com.hexime.ime.engine.RimeEngine
 import com.hexime.ime.ui.HeximePalettes
 import java.util.concurrent.Executors
 
-/** 设置/引导页。 */
+/**
+ * 设置页 —— Material 3 风格（动态取色）。
+ *
+ * 刻意**不引 com.google.android.material**：那个库给 APK 加 ~1.5MB（几乎全是资源），
+ * 打开设置页时还会多几 MB 运行时开销（MaterialButton/TextInputLayout 这类控件比原生重）。
+ * 这里用系统动态色（Android 12+ 的 system_accent1_* / system_neutral1_*，就是 Material You 那套
+ * tonal palette）+ 圆角卡片 + Switch/SeekBar 自己搭，观感一致、零额外依赖。
+ */
 class MainActivity : Activity() {
 
     private lateinit var statusView: TextView
     private lateinit var vibValue: TextView
+    private lateinit var heightValue: TextView
+    private lateinit var paletteRow: LinearLayout
     private val io = Executors.newSingleThreadExecutor()
     private val main = Handler(Looper.getMainLooper())
 
+    private lateinit var c: M3
+
+    /** Material 3 的一小组颜色角色（够这个页面用）。 */
+    private class M3(
+        val accent: Int,
+        val onAccent: Int,
+        val surface: Int,
+        val surfaceContainer: Int,
+        val onSurface: Int,
+        val onSurfaceVariant: Int,
+        val outline: Int,
+    )
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        c = m3Colors()
+        window.statusBarColor = c.surface
+        window.navigationBarColor = c.surface
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(48, 64, 48, 48)
+            setPadding(dp(20), dp(28), dp(20), dp(32))
+            setBackgroundColor(c.surface)
         }
 
-        statusView = TextView(this).apply { textSize = 15f }
-
-        root.addView(TextView(this).apply { text = "Hexime 输入法"; textSize = 24f })
+        // ---------------- 头部 ----------------
+        root.addView(TextView(this).apply {
+            text = "Hexime 输入法"
+            textSize = 26f
+            setTextColor(c.onSurface)
+            setTypeface(typeface, Typeface.BOLD)
+        })
+        statusView = TextView(this).apply {
+            textSize = 13f
+            setTextColor(c.onSurfaceVariant)
+            setPadding(0, dp(6), 0, dp(4))
+        }
         root.addView(statusView)
 
-        root.addView(Button(this).apply {
-            text = "1. 启用 Hexime（系统输入法设置）"
-            setOnClickListener { startActivity(Intent(Settings.ACTION_INPUT_METHOD_SETTINGS)) }
-        })
-        root.addView(Button(this).apply {
-            text = "2. 选择 Hexime 为当前输入法"
-            setOnClickListener {
+        // ---------------- 卡片：开始使用 ----------------
+        root.addView(card("开始使用") { box ->
+            box.addView(filledButton("启用 Hexime（系统输入法设置）") {
+                startActivity(Intent(Settings.ACTION_INPUT_METHOD_SETTINGS))
+            })
+            box.addView(filledButton("选择 Hexime 为当前输入法") {
                 getSystemService(InputMethodManager::class.java).showInputMethodPicker()
+            })
+            box.addView(textButton("重新部署词库（首次较慢）") { redeploy() })
+        })
+
+        // ---------------- 卡片：外观 ----------------
+        root.addView(card("外观") { box ->
+            box.addView(sectionLabel("配色（来自 trime2 小鹤主题，换完下次弹键盘生效）"))
+            paletteRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+            box.addView(ScrollView(this).apply {
+                isHorizontalScrollBarEnabled = false
+                addView(paletteRow)
+            })
+            fillPaletteChips()
+
+            box.addView(sectionLabel("键盘高度（总高，各键盘页等高）"))
+            heightValue = TextView(this).apply {
+                textSize = 14f
+                setTextColor(c.onSurfaceVariant)
             }
-        })
-        root.addView(Button(this).apply {
-            text = "重新部署词库（首次较慢）"
-            setOnClickListener { redeploy() }
-        })
-
-        // ---- 震动 ----
-        root.addView(sectionTitle("\n震动强度"))
-        vibValue = TextView(this).apply { textSize = 15f }
-        root.addView(vibValue)
-
-        val seek = SeekBar(this).apply {
-            max = 100
-            progress = HeximeSettings.vibrationPercent(this@MainActivity)
-        }
-        seek.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-            override fun onProgressChanged(sb: SeekBar?, value: Int, fromUser: Boolean) {
-                HeximeSettings.setVibrationPercent(this@MainActivity, value)
-                updateVibLabel(value)
-                if (fromUser) previewVibration(value)
+            box.addView(heightValue)
+            val heightSeek = SeekBar(this).apply {
+                max = HeximeSettings.KEYBOARD_HEIGHT_MAX - HeximeSettings.KEYBOARD_HEIGHT_MIN
+                progress = HeximeSettings.keyboardHeightDp(this@MainActivity) -
+                    HeximeSettings.KEYBOARD_HEIGHT_MIN
+                tint(c.accent)
             }
-
-            override fun onStartTrackingTouch(sb: SeekBar?) {}
-            override fun onStopTrackingTouch(sb: SeekBar?) {}
-        })
-        root.addView(seek)
-        updateVibLabel(seek.progress)
-
-        root.addView(Button(this).apply {
-            text = "试一下震动"
-            setOnClickListener { previewVibration(HeximeSettings.vibrationPercent(this@MainActivity)) }
-        })
-
-        // ---- 键盘高度 ----
-        root.addView(sectionTitle("\n键盘高度（总高，下次弹出键盘生效）"))
-        val heightValue = TextView(this).apply { textSize = 15f }
-        root.addView(heightValue)
-        fun updateHeightLabel(progress: Int) {
-            heightValue.text =
-                "键盘高度：${progress + HeximeSettings.KEYBOARD_HEIGHT_MIN} dp" +
-                    "（各键盘页等高）"
-        }
-        val heightSeek = SeekBar(this).apply {
-            max = HeximeSettings.KEYBOARD_HEIGHT_MAX - HeximeSettings.KEYBOARD_HEIGHT_MIN
-            progress = HeximeSettings.keyboardHeightDp(this@MainActivity) -
-                HeximeSettings.KEYBOARD_HEIGHT_MIN
-        }
-        heightSeek.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-            override fun onProgressChanged(sb: SeekBar?, value: Int, fromUser: Boolean) {
-                HeximeSettings.setKeyboardHeightDp(
-                    this@MainActivity,
-                    value + HeximeSettings.KEYBOARD_HEIGHT_MIN,
-                )
-                updateHeightLabel(value)
-            }
-
-            override fun onStartTrackingTouch(sb: SeekBar?) {}
-            override fun onStopTrackingTouch(sb: SeekBar?) {}
-        })
-        root.addView(heightSeek)
-        updateHeightLabel(heightSeek.progress)
-
-        // ---- 配色 ----
-        root.addView(sectionTitle("\n配色（来自 trime2 小鹤主题，下次弹出键盘生效）"))
-        val palettes = HeximePalettes.ALL
-        val paletteValue = TextView(this).apply { textSize = 14f }
-        root.addView(paletteValue)
-        val paletteSpinner = Spinner(this).apply {
-            adapter = ArrayAdapter(
-                this@MainActivity,
-                android.R.layout.simple_spinner_dropdown_item,
-                palettes.map { it.name },
-            )
-            setSelection(palettes.indexOfFirst { it.id == HeximeSettings.paletteId(this@MainActivity) }
-                .coerceAtLeast(0))
-            onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
-                override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
-                    val p = palettes[position]
-                    HeximeSettings.setPaletteId(this@MainActivity, p.id)
-                    paletteValue.text = "键面 #%06X ／ 底色 #%06X".format(
-                        p.keyFace and 0xFFFFFF, p.keyboardBg and 0xFFFFFF,
+            heightSeek.setOnSeekBarChangeListener(object : SimpleSeek() {
+                override fun onProgressChanged(sb: SeekBar?, value: Int, fromUser: Boolean) {
+                    HeximeSettings.setKeyboardHeightDp(
+                        this@MainActivity,
+                        value + HeximeSettings.KEYBOARD_HEIGHT_MIN,
                     )
+                    updateHeightLabel(value)
                 }
-
-                override fun onNothingSelected(parent: AdapterView<*>?) {}
-            }
-        }
-        root.addView(paletteSpinner)
-
-        // ---- 跟手延迟显示 ----
-        root.addView(CheckBox(this).apply {
-            text = "在输入法状态栏显示「跟手延迟」(按键→下一帧)"
-            isChecked = HeximeSettings.showLatency(this@MainActivity)
-            setOnCheckedChangeListener { _, checked ->
-                HeximeSettings.setShowLatency(this@MainActivity, checked)
-            }
+            })
+            box.addView(heightSeek)
+            updateHeightLabel(heightSeek.progress)
         })
 
-        // ---- 测试输入 ----
-        root.addView(sectionTitle("\n测试输入（点下面输入框调出键盘）"))
-        root.addView(EditText(this).apply {
-            hint = "在这里输入…"
-            minLines = 2
+        // ---------------- 卡片：手感 ----------------
+        root.addView(card("手感") { box ->
+            box.addView(sectionLabel("震动强度"))
+            vibValue = TextView(this).apply {
+                textSize = 14f
+                setTextColor(c.onSurfaceVariant)
+            }
+            box.addView(vibValue)
+            val seek = SeekBar(this).apply {
+                max = 100
+                progress = HeximeSettings.vibrationPercent(this@MainActivity)
+                tint(c.accent)
+            }
+            seek.setOnSeekBarChangeListener(object : SimpleSeek() {
+                override fun onProgressChanged(sb: SeekBar?, value: Int, fromUser: Boolean) {
+                    HeximeSettings.setVibrationPercent(this@MainActivity, value)
+                    updateVibLabel(value)
+                    if (fromUser) previewVibration(value)
+                }
+            })
+            box.addView(seek)
+            updateVibLabel(seek.progress)
+            box.addView(textButton("试一下震动") {
+                previewVibration(HeximeSettings.vibrationPercent(this@MainActivity))
+            })
+
+            box.addView(
+                switchRow(
+                    "显示「跟手延迟」",
+                    "按键到下一帧的耗时，调优指标；默认关（开着每键多一次 Choreographer 回调）",
+                    HeximeSettings.showLatency(this@MainActivity),
+                ) { checked -> HeximeSettings.setShowLatency(this@MainActivity, checked) },
+            )
         })
 
-        setContentView(root)
+        // ---------------- 卡片：测试输入 ----------------
+        root.addView(card("测试输入") { box ->
+            box.addView(sectionLabel("点下面输入框调出键盘"))
+            box.addView(EditText(this).apply {
+                hint = "在这里输入…"
+                minLines = 3
+                textSize = 16f
+                setTextColor(c.onSurface)
+                setHintTextColor(c.onSurfaceVariant)
+                inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE
+                setPadding(dp(14), dp(12), dp(14), dp(12))
+                background = rounded(c.surfaceContainer, 16f, c.outline, 1)
+            })
+        })
+
+        setContentView(
+            ScrollView(this).apply {
+                setBackgroundColor(c.surface)
+                addView(root)
+            },
+        )
         refreshStatus()
     }
 
-    private fun sectionTitle(text: String) = TextView(this).apply {
-        this.text = text
-        textSize = 16f
+    // ------------------------------------------------------------ 组件
+
+    /** 圆角卡片（M3 的 surface container + 20dp 圆角）。 */
+    private fun card(title: String, build: (LinearLayout) -> Unit): View {
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16), dp(14), dp(16), dp(14))
+            background = rounded(c.surfaceContainer, 20f, 0)
+        }
+        box.addView(TextView(this).apply {
+            text = title
+            textSize = 13f
+            letterSpacing = 0.06f
+            setTextColor(c.accent)
+            setTypeface(typeface, Typeface.BOLD)
+            setPadding(0, 0, 0, dp(6))
+        })
+        build(box)
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, dp(6), 0, dp(6))
+            addView(box)
+        }
     }
+
+    private fun sectionLabel(text: String) = TextView(this).apply {
+        this.text = text
+        textSize = 13f
+        setTextColor(c.onSurfaceVariant)
+        setPadding(0, dp(10), 0, dp(4))
+    }
+
+    /** M3 填充按钮（胶囊形 + 涟漪）。 */
+    private fun filledButton(text: String, onClick: () -> Unit) = Button(this).apply {
+        this.text = text
+        textSize = 15f
+        isAllCaps = false
+        setTextColor(c.onAccent)
+        background = ripple(c.accent, c.accent, 999f)
+        setOnClickListener { onClick() }
+        layoutParams = LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+        ).apply { topMargin = dp(8) }
+    }
+
+    /** M3 文字按钮。 */
+    private fun textButton(text: String, onClick: () -> Unit) = Button(this).apply {
+        this.text = text
+        textSize = 14f
+        isAllCaps = false
+        setTextColor(c.accent)
+        background = ripple(c.accent, Color.TRANSPARENT, 999f)
+        setOnClickListener { onClick() }
+        layoutParams = LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+        ).apply { topMargin = dp(4) }
+    }
+
+    /** 标题 + 副标题 + 右侧开关的一行。 */
+    private fun switchRow(
+        title: String,
+        subtitle: String,
+        checked: Boolean,
+        onChange: (Boolean) -> Unit,
+    ) = LinearLayout(this).apply {
+        orientation = LinearLayout.HORIZONTAL
+        gravity = Gravity.CENTER_VERTICAL
+        setPadding(0, dp(10), 0, 0)
+        val texts = LinearLayout(this@MainActivity).apply { orientation = LinearLayout.VERTICAL }
+        texts.addView(TextView(this@MainActivity).apply {
+            text = title
+            textSize = 16f
+            setTextColor(c.onSurface)
+        })
+        texts.addView(TextView(this@MainActivity).apply {
+            text = subtitle
+            textSize = 12f
+            setTextColor(c.onSurfaceVariant)
+        })
+        addView(texts, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        addView(Switch(this@MainActivity).apply {
+            isChecked = checked
+            thumbTintList = ColorStateList(
+                arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()),
+                intArrayOf(c.accent, c.outline),
+            )
+            trackTintList = ColorStateList(
+                arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()),
+                intArrayOf(withAlpha(c.accent, 0.5f), withAlpha(c.outline, 0.4f)),
+            )
+            setOnCheckedChangeListener { _, value -> onChange(value) }
+        })
+    }
+
+    /** 12 套配色做成小色块（用那套配色自己的键面/字色画）。 */
+    private fun fillPaletteChips() {
+        paletteRow.removeAllViews()
+        val current = HeximeSettings.paletteId(this)
+        HeximePalettes.ALL.forEach { p ->
+            val selected = p.id == current
+            paletteRow.addView(TextView(this).apply {
+                text = p.name
+                textSize = 14f
+                gravity = Gravity.CENTER
+                setTextColor(p.keyText)
+                background = rounded(
+                    p.keyFace,
+                    12f,
+                    if (selected) c.accent else c.outline,
+                    if (selected) 2 else 1,
+                )
+                setPadding(dp(14), dp(8), dp(14), dp(8))
+                setOnClickListener {
+                    HeximeSettings.setPaletteId(this@MainActivity, p.id)
+                    fillPaletteChips()
+                }
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                ).apply { marginEnd = dp(8) }
+            })
+        }
+    }
+
+    private abstract class SimpleSeek : SeekBar.OnSeekBarChangeListener {
+        override fun onStartTrackingTouch(sb: SeekBar?) {}
+        override fun onStopTrackingTouch(sb: SeekBar?) {}
+    }
+
+    // ------------------------------------------------------------ 颜色 / 形状
+
+    /** 优先用系统动态色（Material You）；Android 12 以下退回 M3 基线配色。 */
+    private fun m3Colors(): M3 {
+        val night = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
+            Configuration.UI_MODE_NIGHT_YES
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            fun sys(id: Int) = getColor(id)
+            return if (night) M3(
+                accent = sys(android.R.color.system_accent1_200),
+                onAccent = sys(android.R.color.system_accent1_900),
+                surface = sys(android.R.color.system_neutral1_900),
+                surfaceContainer = sys(android.R.color.system_neutral1_800),
+                onSurface = sys(android.R.color.system_neutral1_50),
+                onSurfaceVariant = sys(android.R.color.system_neutral2_200),
+                outline = sys(android.R.color.system_neutral2_600),
+            ) else M3(
+                accent = sys(android.R.color.system_accent1_600),
+                onAccent = Color.WHITE,
+                surface = sys(android.R.color.system_neutral1_50),
+                surfaceContainer = sys(android.R.color.system_neutral1_100),
+                onSurface = sys(android.R.color.system_neutral1_900),
+                onSurfaceVariant = sys(android.R.color.system_neutral2_700),
+                outline = sys(android.R.color.system_neutral2_400),
+            )
+        }
+        // Android 12 以下没有动态色 → M3 基线（light/dark）
+        return if (night) M3(
+            0xFFA8C7FA.toInt(), 0xFF062E6F.toInt(), 0xFF1B1B1F.toInt(), 0xFF2B2930.toInt(),
+            0xFFE6E1E9.toInt(), 0xFFCAC4D0.toInt(), 0xFF938F99.toInt(),
+        ) else M3(
+            0xFF0B57D0.toInt(), Color.WHITE, 0xFFFEF7FF.toInt(), 0xFFF3EDF7.toInt(),
+            0xFF1D1B20.toInt(), 0xFF49454F.toInt(), 0xFF79747E.toInt(),
+        )
+    }
+
+    private fun rounded(fill: Int, radiusDp: Float, stroke: Int, strokeDp: Int = 0) =
+        GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            setColor(fill)
+            cornerRadius = dp(radiusDp.toInt()).toFloat()
+            if (stroke != 0 && strokeDp > 0) setStroke(dp(strokeDp), stroke)
+        }
+
+    private fun ripple(rippleColor: Int, fill: Int, radiusDp: Float) = RippleDrawable(
+        ColorStateList.valueOf(withAlpha(rippleColor, 0.16f)),
+        if (fill == Color.TRANSPARENT) null else rounded(fill, radiusDp, 0),
+        if (fill == Color.TRANSPARENT) rounded(Color.WHITE, radiusDp, 0) else null,
+    )
+
+    private fun withAlpha(color: Int, alpha: Float): Int = Color.argb(
+        (255 * alpha).toInt().coerceIn(0, 255),
+        Color.red(color),
+        Color.green(color),
+        Color.blue(color),
+    )
+
+    private fun SeekBar.tint(color: Int) {
+        progressTintList = ColorStateList.valueOf(color)
+        thumbTintList = ColorStateList.valueOf(color)
+    }
+
+    private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
+
+    // ------------------------------------------------------------ 逻辑
 
     private fun updateVibLabel(percent: Int) {
         vibValue.text = if (percent <= 0) "震动：关闭" else "震动：$percent%"
+    }
+
+    private fun updateHeightLabel(progress: Int) {
+        heightValue.text = "键盘高度：${progress + HeximeSettings.KEYBOARD_HEIGHT_MIN} dp"
     }
 
     private fun previewVibration(percent: Int) {
@@ -193,13 +418,13 @@ class MainActivity : Activity() {
             val count = shared.listFiles()?.size ?: 0
             val version = runCatching { RimeEngine().version() }.getOrDefault("?")
             main.post {
-                statusView.text =
-                    "librime: $version\n数据文件: $count 个\n目录: ${shared.absolutePath}"
+                statusView.text = "librime $version · 数据文件 $count 个\n${shared.absolutePath}"
             }
         }
     }
 
     private fun redeploy() {
+        statusView.text = "正在重新部署…"
         io.execute {
             val shared = RimeDataInstaller.ensureInstalled(this)
             val user = RimeDataInstaller.userDir(this).apply { mkdirs() }
@@ -211,6 +436,8 @@ class MainActivity : Activity() {
                 val ms = System.currentTimeMillis() - t0
                 engine.shutdown()
                 main.post { statusView.text = "部署完成：${ms} ms" }
+            } else {
+                main.post { statusView.text = "部署失败：初始化引擎出错" }
             }
         }
     }

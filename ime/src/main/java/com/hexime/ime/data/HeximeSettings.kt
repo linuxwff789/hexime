@@ -36,9 +36,13 @@ object HeximeSettings {
             .apply()
     }
 
-    /** 是否在输入法状态栏显示实时「跟手延迟」。开发调优期默认开启。 */
+    /**
+     * 是否在输入法状态栏显示实时「跟手延迟」。
+     * 默认关：开着的话每按一个键都要 post 一次 Choreographer 回调 + 刷状态行，
+     * 属于开发调优指标，平时不用付这个成本（点状态栏或设置页都能开）。
+     */
     fun showLatency(context: Context): Boolean =
-        prefs(context).getBoolean(KEY_SHOW_LATENCY, true)
+        prefs(context).getBoolean(KEY_SHOW_LATENCY, false)
 
     fun setShowLatency(context: Context, value: Boolean) {
         prefs(context).edit().putBoolean(KEY_SHOW_LATENCY, value).apply()

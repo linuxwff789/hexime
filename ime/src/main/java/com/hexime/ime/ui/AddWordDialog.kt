@@ -108,6 +108,8 @@ class AddWordDialog(
     fun dismiss() {
         dialog?.dismiss()
         dialog = null
+        // 字表 ~2MB 常驻，只有这个窗口用得到 → 关掉就放掉（下次打开重新读）
+        XiaoheCode.release()
     }
 
     private fun confirm() {
