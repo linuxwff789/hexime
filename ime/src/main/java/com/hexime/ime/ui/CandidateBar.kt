@@ -38,14 +38,14 @@ class CandidateBar(context: Context) : HorizontalScrollView(context) {
     fun applyPalette(palette: Palette) {
         this.palette = palette
         setBackgroundColor(palette.candidateBg)
-        for (i in 0 until row.childCount) {
-            (row.getChildAt(i) as? TextView)?.setTextColor(palette.candidateText)
-        }
+        itemPool.forEach { it.setTextColor(palette.candidateText) }
+        lastCandidates = emptyList() // 强制下次 setCandidates 重刷（颜色变了）
     }
 
     // ---------------------------------------------------------------- 配色选择模式
 
     private var pickerCallback: ((Int) -> Unit)? = null
+    private val pickerViews = ArrayList<TextView>(HeximePalettes.ALL.size)
 
     /** 正在当配色选择条用（此时别被候选覆盖）。 */
     val inPicker: Boolean get() = pickerCallback != null
@@ -56,7 +56,9 @@ class CandidateBar(context: Context) : HorizontalScrollView(context) {
      */
     fun showPalettePicker(onPick: (Int) -> Unit) {
         pickerCallback = onPick
-        row.removeAllViews()
+        clearPickerViews()
+        // 候选先让位（它们和配色项共用同一个 row）
+        itemPool.forEach { it.visibility = GONE }
         HeximePalettes.ALL.forEachIndexed { index, p ->
             val item = TextView(context).apply {
                 text = p.name
@@ -68,6 +70,7 @@ class CandidateBar(context: Context) : HorizontalScrollView(context) {
                 isClickable = true
                 setOnClickListener { pickerCallback?.invoke(index) }
             }
+            pickerViews.add(item)
             row.addView(item)
         }
         scrollTo(0, 0)
@@ -75,37 +78,61 @@ class CandidateBar(context: Context) : HorizontalScrollView(context) {
 
     fun clearPicker() {
         pickerCallback = null
+        clearPickerViews()
+        lastCandidates = emptyList() // 下次 setCandidates 重新把候选摆回来
     }
 
-    fun setCandidates(candidates: List<Candidate>) {
-        // 注意：只清空 row 的子视图，不能 removeAllViews()，
-        // 否则会把 row 本身从 HorizontalScrollView 里移除。
-        row.removeAllViews()
-        if (candidates.isEmpty()) return
+    private fun clearPickerViews() {
+        pickerViews.forEach { row.removeView(it) }
+        pickerViews.clear()
+    }
 
-        candidates.forEachIndexed { index, candidate ->
-            val view = TextView(context).apply {
-                text = if (index < 9) "${index + 1} ${candidate.text}" else candidate.text
+    /** 候选 TextView 复用池：按键热路径上只改文字，不再每次 removeAllViews + 新建。 */
+    private val itemPool = ArrayList<TextView>(10)
+
+    /** 上一次的候选列表：内容没变就完全不碰 UI。 */
+    private var lastCandidates: List<Candidate> = emptyList()
+
+    fun setCandidates(candidates: List<Candidate>) {
+        if (pickerCallback != null) return
+        // 组合串每变一次候选就变一次；同一份候选（翻页边界/重复刷新）不要重排 UI
+        if (candidates == lastCandidates) return
+        lastCandidates = candidates
+
+        while (itemPool.size < candidates.size) {
+            val tv = TextView(context).apply {
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 20f)
                 setTextColor(palette.candidateText)
                 setPadding(dp(14), dp(6), dp(14), dp(6))
                 gravity = Gravity.CENTER
                 isClickable = true
-                setOnClickListener { onSelect?.invoke(index) }
-                // 长按 = 快捷加词（这个候选词 + 当前组合区的码，写进 custom_phrase 后置顶）
                 isLongClickable = true
-                setOnLongClickListener {
-                    onLongSelect?.invoke(candidate.text)
-                    true
-                }
             }
-            row.addView(view)
+            itemPool.add(tv)
+            row.addView(tv)
+        }
+        itemPool.forEachIndexed { index, tv ->
+            if (index >= candidates.size) {
+                tv.visibility = GONE
+                return@forEachIndexed
+            }
+            val candidate = candidates[index]
+            tv.visibility = VISIBLE
+            tv.text = if (index < 9) "${index + 1} ${candidate.text}" else candidate.text
+            tv.setTextColor(palette.candidateText)
+            tv.setOnClickListener { onSelect?.invoke(index) }
+            // 长按 = 加词窗口（预填该候选词）
+            tv.setOnLongClickListener {
+                onLongSelect?.invoke(candidate.text)
+                true
+            }
         }
         scrollTo(0, 0)
     }
 
     fun clear() {
-        row.removeAllViews()
+        lastCandidates = emptyList()
+        itemPool.forEach { it.visibility = GONE }
     }
 
     private fun dp(value: Int): Int =

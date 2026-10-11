@@ -56,6 +56,9 @@ class HeximeService : InputMethodService() {
     /** 顶栏容器（换配色时要改底色）。 */
     private var topBarView: LinearLayout? = null
 
+    /** 状态行上一次的文本（没变就不 setText）。 */
+    private var lastStatusText = ""
+
     private var statusView: TextView? = null
     private var candidateBar: CandidateBar? = null
     private var keyboardView: KeyboardView? = null
@@ -588,16 +591,20 @@ class HeximeService : InputMethodService() {
 
     private fun updateStatus() {
         val bar = statusView ?: return
-        bar.text = when {
+        val text = when {
             !ready -> "部署中…（首次会编译词库）"
             else -> buildString {
-                // 顶栏要留出「＋词」按钮的位置，状态文字保持短
+                // 顶栏要留出「＋词」「配色」按钮的位置，状态文字保持短
                 append("${engine.currentSchema()} · ${if (asciiMode) "英" else "中"}")
                 if (HeximeSettings.showLatency(this@HeximeService)) {
                     append(" · %.1fms".format(latencyMs))
                 }
             }
         }
+        // 按键热路径上会频繁调用：文字没变就别 setText（省一次 measure/layout/draw）
+        if (lastStatusText == text) return
+        lastStatusText = text
+        bar.text = text
     }
 
     private fun haptic() {
