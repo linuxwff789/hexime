@@ -411,8 +411,8 @@ class HeximeService : InputMethodService() {
             "Down" to 0xFF54,
             "Left" to 0xFF51,
             "Right" to 0xFF53,
-            "Page_Up" to InputEngine.KEY_PAGE_UP,
-            "Page_Down" to InputEngine.KEY_PAGE_DOWN,
+            "Page_Up" to 0xFF55,   // InputEngine 暂无这两个常量
+            "Page_Down" to 0xFF56,
             "Home" to 0xFF50,
             "End" to 0xFF57,
         )

@@ -245,7 +245,7 @@ class KeyboardView(context: Context) : LinearLayout(context) {
             current.consumed = true
             cancelLongPress(pointerId)
             current.view.isPressed = false
-            onKey?.invoke(toAction(swipe, shift))
+            onKey?.invoke(swipe)
         } else {
             // 没有该方向的动作：手指已经划出去了，取消长按
             cancelLongPress(pointerId)
@@ -272,7 +272,7 @@ class KeyboardView(context: Context) : LinearLayout(context) {
             longPressRunnables.remove(pointerId)
             key.longFired = true
             key.view.isPressed = false
-            onKey?.invoke(toAction(action, shift))
+            onKey?.invoke(action)
         }
         longPressRunnables.put(pointerId, runnable)
         handler.postDelayed(runnable, LONG_PRESS_MS)
