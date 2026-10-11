@@ -59,6 +59,16 @@ class HeximeService : InputMethodService() {
     /** 状态行上一次的文本（没变就不 setText）。 */
     private var lastStatusText = ""
 
+    // ---- 设置缓存：按键热路径上不要反复读 SharedPreferences ----
+    private var vibPercent = HeximeSettings.VIBRATION_DEFAULT
+    private var latencyOn = false
+
+    /** 重新读一遍热路径用到的设置（建视图、从设置页回来时调用）。 */
+    private fun refreshSettingsCache() {
+        vibPercent = HeximeSettings.vibrationPercent(this)
+        latencyOn = HeximeSettings.showLatency(this)
+    }
+
     private var statusView: TextView? = null
     private var candidateBar: CandidateBar? = null
     private var keyboardView: KeyboardView? = null
@@ -128,8 +138,9 @@ class HeximeService : InputMethodService() {
             // 点状态栏切换跟手延迟显示
             isClickable = true
             setOnClickListener {
-                val next = !HeximeSettings.showLatency(this@HeximeService)
+                val next = !latencyOn
                 HeximeSettings.setShowLatency(this@HeximeService, next)
+                latencyOn = next
                 updateStatus()
             }
         }
@@ -181,6 +192,7 @@ class HeximeService : InputMethodService() {
         // 记住这次视图用的高度/配色，免得 onStartInputView 又重建一遍
         appliedKeyHeight = HeximeSettings.keyboardHeightDp(this)
         appliedPaletteId = HeximeSettings.paletteId(this)
+        refreshSettingsCache()
         updateStatus()
         return root
     }
@@ -200,6 +212,7 @@ class HeximeService : InputMethodService() {
     override fun onStartInputView(info: EditorInfo?, restarting: Boolean) {
         super.onStartInputView(info, restarting)
         // 设置里改了键盘高度/配色则重建输入视图
+        refreshSettingsCache()
         val height = HeximeSettings.keyboardHeightDp(this)
         val paletteId = HeximeSettings.paletteId(this)
         if (height != appliedKeyHeight || paletteId != appliedPaletteId) {
@@ -596,7 +609,7 @@ class HeximeService : InputMethodService() {
             else -> buildString {
                 // 顶栏要留出「＋词」「配色」按钮的位置，状态文字保持短
                 append("${engine.currentSchema()} · ${if (asciiMode) "英" else "中"}")
-                if (HeximeSettings.showLatency(this@HeximeService)) {
+                if (latencyOn) {
                     append(" · %.1fms".format(latencyMs))
                 }
             }
@@ -608,7 +621,7 @@ class HeximeService : InputMethodService() {
     }
 
     private fun haptic() {
-        val percent = HeximeSettings.vibrationPercent(this)
+        val percent = vibPercent
         if (percent <= 0) return
         val v = vibrator ?: return
         if (!v.hasVibrator()) return
@@ -618,7 +631,7 @@ class HeximeService : InputMethodService() {
 
     /** 记录「按键 -> 下一帧渲染」的耗时，作为跟手性的量化指标。 */
     private fun measureLatency(t0: Long) {
-        if (!HeximeSettings.showLatency(this)) return
+        if (!latencyOn) return
         Choreographer.getInstance().postFrameCallback { frameTimeNanos ->
             latencyMs = (frameTimeNanos - t0) / 1_000_000.0
             updateStatus()
