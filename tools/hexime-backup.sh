@@ -52,14 +52,24 @@ if [ "$RESTORE" = 1 ]; then
   APP_CTX="$(su -c "ls -Zd $APP" | awk '{print $1}')"
   [ -n "$APP_CTX" ] || fail "拿不到 $APP 的 SELinux 标签"
 
-  # 目标目录可能还不存在（刚装完、app 还没写过 prefs）；新建时跟父目录同属主/同 SELinux 标签，
-  # 否则 app 自己往里写会失败。
+  # 属主/标签一律修成当前 app 的：**重装后 uid 会变**（10389 → 10390 …），旧目录还属于
+  # 上一个 uid，app 连子目录都建不了 → files/rime/shared 建不出来 → copyAssets 抛
+  # FileNotFoundException → 后台线程没人接 → 一打开就闪退（实测踩过）。
+  # 所以不是"新建时才修"，而是每次恢复都把要用的目录整棵修一遍。
+  fix_owner() {
+    local p="$1"
+    [ -e "$p" ] || return 0
+    su -c "chown -R $APP_UID:$APP_UID '$p' && chcon -R '$APP_CTX' '$p'" || true
+  }
+
+  # 目标目录可能还不存在（刚装完、app 还没写过 prefs）；建完照样修属主/标签。
   ensure_dir() {
     local d="$1"
-    [ -d "$d" ] && return 0
-    su -c "mkdir -p '$d' && chown $APP_UID:$APP_UID '$d' && chcon '$APP_CTX' '$d'" \
-      || fail "建目录失败: $d"
-    log "新建目录 $d（属主 $APP_UID）"
+    if [ ! -d "$d" ]; then
+      su -c "mkdir -p '$d'" || fail "建目录失败: $d"
+      log "新建目录 $d"
+    fi
+    fix_owner "$d"
   }
 
   # cat > 保留原 inode/属主（已存在时）；新建的文件要补属主 + 标签。
@@ -68,9 +78,13 @@ if [ "$RESTORE" = 1 ]; then
     dir="$(dirname "$dst")"
     ensure_dir "$dir"
     su -c "cat > '$dst'" < "$src" || fail "写 $dst 失败"
-    su -c "chown $APP_UID:$APP_UID '$dst' && chcon '$APP_CTX' '$dst'" || fail "改属主/标签失败: $dst"
+    fix_owner "$dst"
     log "已恢复 $(basename "$dst")（$(wc -c < "$src" | tr -d ' ') 字节，属主 $APP_UID）"
   }
+
+  # 先修整棵树的属主（重装换 uid 后旧目录属于上一个 uid）
+  fix_owner "$APP/files"
+  fix_owner "$APP/shared_prefs"
 
   if [ -f "$WORK/custom_phrase.txt" ]; then
     restore_file "$WORK/custom_phrase.txt" "$APP/files/rime/user/custom_phrase.txt"

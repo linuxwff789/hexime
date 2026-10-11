@@ -4,10 +4,15 @@ import android.content.Context
 import android.util.Log
 import java.io.File
 import java.io.FileOutputStream
+import java.io.IOException
 
 /**
  * 把打包在 assets/rime 的方案数据释放到应用私有目录。
  * 用版本号标记，避免每次启动重复拷贝。
+ *
+ * 注意：这里的失败必须**抛出可读的 IOException**，不能让它变成 ENOENT 悄悄往上冒 ——
+ * 之前 mkdirs() 失败（files/ 目录属主不对）没检查，后面 FileOutputStream 直接
+ * FileNotFoundException，在后台线程里没人接 → 整个进程被杀（表现为"一打开就闪退"）。
  */
 object RimeDataInstaller {
 
@@ -30,9 +35,9 @@ object RimeDataInstaller {
         }
         Log.i(TAG, "installing rime data (version $installed -> $DATA_VERSION)")
         shared.deleteRecursively()
-        shared.mkdirs()
+        mkdirsOrThrow(shared)
         copyAssets(context, "rime", shared)
-        marker.parentFile?.mkdirs()
+        mkdirsOrThrow(marker.parentFile)
         marker.writeText(DATA_VERSION.toString())
         return shared
     }
@@ -40,13 +45,24 @@ object RimeDataInstaller {
     private fun copyAssets(context: Context, assetDir: String, dest: File) {
         val children = context.assets.list(assetDir) ?: return
         if (children.isEmpty()) {
-            dest.parentFile?.mkdirs()
+            mkdirsOrThrow(dest.parentFile)
             context.assets.open(assetDir).use { input ->
                 FileOutputStream(dest).use { input.copyTo(it) }
             }
             return
         }
-        dest.mkdirs()
+        mkdirsOrThrow(dest)
         for (name in children) copyAssets(context, "$assetDir/$name", File(dest, name))
+    }
+
+    /** mkdirs 失败就当场报出来（带上路径和原因），别等到后面 open 才炸。 */
+    private fun mkdirsOrThrow(dir: File?) {
+        if (dir == null || dir.isDirectory) return
+        if (!dir.mkdirs() && !dir.isDirectory) {
+            throw IOException(
+                "建不了目录 ${dir.absolutePath}" +
+                    "（exists=${dir.exists()} canWrite=${dir.parentFile?.canWrite()}）",
+            )
+        }
     }
 }

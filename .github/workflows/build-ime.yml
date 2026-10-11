@@ -61,9 +61,21 @@ jobs:
         with:
           gradle-version: '8.11.1'
 
-      - name: Build release APK
+      - name: Build release APK（用固定签名 keystore）
         working-directory: ime
+        env:
+          HEXIME_KEYSTORE_B64: ${{ secrets.HEXIME_KEYSTORE_B64 }}
+          HEXIME_KEYSTORE_PASSWORD: ${{ secrets.HEXIME_KEYSTORE_PASSWORD }}
+          HEXIME_KEY_ALIAS: ${{ secrets.HEXIME_KEY_ALIAS }}
+          HEXIME_KEY_PASSWORD: ${{ secrets.HEXIME_KEY_PASSWORD }}
         run: gradle assembleRelease --no-daemon --stacktrace --max-workers="$(nproc)"
+
+      - name: 打印签名指纹（确认不是 debug key）
+        working-directory: ime
+        run: |
+          APK=$(ls build/outputs/apk/release/*.apk | head -1)
+          "$ANDROID_SDK_ROOT/build-tools/35.0.0/apksigner" verify --print-certs "$APK" \
+            | grep -i "certificate DN\|SHA-256 digest" || true
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
@@ -72,9 +84,21 @@ jobs:
           path: ime/build/outputs/apk/release/*.apk
           if-no-files-found: error
 
+      # 每次 main 编译完都发一个 Release（签名固定 → 手机上可以直接 pm install -r 覆盖升级）
       - name: Publish to Release
-        if: startsWith(github.ref, 'refs/tags/')
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ime-${{ github.run_number }}
+          name: hexime ime-${{ github.run_number }} · ${{ github.sha }}
+          body: |
+            自动构建 · commit `${{ github.sha }}` · run #${{ github.run_number }}
+
+            安装（签名已固定，可直接覆盖升级，不会丢词表/设置）：
+
+            ```
+            pm install -r hexime-ime.apk
+            ```
+            或者 `adb install -r hexime-ime.apk`。
           files: ime/build/outputs/apk/release/*.apk
-          generate_release_notes: true
+          generate_release_notes: false

@@ -261,17 +261,24 @@ class HeximeService : InputMethodService() {
 
     private fun bootstrapEngine() {
         io.execute {
-            val shared = RimeDataInstaller.ensureInstalled(this)
-            val user = RimeDataInstaller.userDir(this).apply { mkdirs() }
-            val log = RimeDataInstaller.logDir(this).apply { mkdirs() }
-            val ok = engine.initialize(shared.absolutePath, user.absolutePath, log.absolutePath)
-            if (ok) {
-                engine.deploy(false)
-                ready = true
-                Log.i(TAG, "engine ready, version=${engine.version()}")
-            } else {
-                Log.e(TAG, "engine initialize failed")
+            // 这里抛异常 = 输入法进程直接死；数据释放失败也要让键盘能弹出来（提示一下就行）
+            val ok = runCatching {
+                val shared = RimeDataInstaller.ensureInstalled(this)
+                val user = RimeDataInstaller.userDir(this).apply { mkdirs() }
+                val log = RimeDataInstaller.logDir(this).apply { mkdirs() }
+                val initialized = engine.initialize(shared.absolutePath, user.absolutePath, log.absolutePath)
+                if (initialized) {
+                    engine.deploy(false)
+                    Log.i(TAG, "engine ready, version=${engine.version()}")
+                } else {
+                    Log.e(TAG, "engine initialize failed")
+                }
+                initialized
+            }.getOrElse {
+                Log.e(TAG, "bootstrapEngine failed", it)
+                false
             }
+            if (ok) ready = true
             main.post {
                 updateStatus()
                 ensureSession()
@@ -547,11 +554,17 @@ class HeximeService : InputMethodService() {
         updateStatus()
         io.execute {
             engine.shutdown()
-            val shared = RimeDataInstaller.ensureInstalled(this)
-            val user = RimeDataInstaller.userDir(this).apply { mkdirs() }
-            val log = RimeDataInstaller.logDir(this).apply { mkdirs() }
-            val ok = engine.initialize(shared.absolutePath, user.absolutePath, log.absolutePath)
-            if (ok) engine.deploy(false)
+            val ok = runCatching {
+                val shared = RimeDataInstaller.ensureInstalled(this)
+                val user = RimeDataInstaller.userDir(this).apply { mkdirs() }
+                val log = RimeDataInstaller.logDir(this).apply { mkdirs() }
+                val initialized = engine.initialize(shared.absolutePath, user.absolutePath, log.absolutePath)
+                if (initialized) engine.deploy(false)
+                initialized
+            }.getOrElse {
+                Log.e(TAG, "reloadEngine failed", it)
+                false
+            }
             ready = ok
             Log.i(TAG, "engine reloaded -> $ok")
             main.post {

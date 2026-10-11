@@ -414,31 +414,35 @@ class MainActivity : Activity() {
 
     private fun refreshStatus() {
         io.execute {
-            val shared = RimeDataInstaller.ensureInstalled(this)
-            val count = shared.listFiles()?.size ?: 0
-            val version = runCatching { RimeEngine().version() }.getOrDefault("?")
-            main.post {
-                statusView.text = "librime $version · 数据文件 $count 个\n${shared.absolutePath}"
-            }
+            // 后台线程里抛异常会直接杀掉整个进程（一打开就闪退），所以这里必须兜住
+            val text = runCatching {
+                val shared = RimeDataInstaller.ensureInstalled(this)
+                val count = shared.listFiles()?.size ?: 0
+                val version = runCatching { RimeEngine().version() }.getOrDefault("?")
+                "librime $version · 数据文件 $count 个\n${shared.absolutePath}"
+            }.getOrElse { "初始化失败：${it.message}" }
+            main.post { statusView.text = text }
         }
     }
 
     private fun redeploy() {
         statusView.text = "正在重新部署…"
         io.execute {
-            val shared = RimeDataInstaller.ensureInstalled(this)
-            val user = RimeDataInstaller.userDir(this).apply { mkdirs() }
-            val log = RimeDataInstaller.logDir(this).apply { mkdirs() }
-            val engine = RimeEngine()
-            if (engine.initialize(shared.absolutePath, user.absolutePath, log.absolutePath)) {
+            val text = runCatching {
+                val shared = RimeDataInstaller.ensureInstalled(this)
+                val user = RimeDataInstaller.userDir(this).apply { mkdirs() }
+                val log = RimeDataInstaller.logDir(this).apply { mkdirs() }
+                val engine = RimeEngine()
+                if (!engine.initialize(shared.absolutePath, user.absolutePath, log.absolutePath)) {
+                    return@runCatching "部署失败：初始化引擎出错"
+                }
                 val t0 = System.currentTimeMillis()
                 engine.deploy(true)
                 val ms = System.currentTimeMillis() - t0
                 engine.shutdown()
-                main.post { statusView.text = "部署完成：${ms} ms" }
-            } else {
-                main.post { statusView.text = "部署失败：初始化引擎出错" }
-            }
+                "部署完成：${ms} ms"
+            }.getOrElse { "部署失败：${it.message}" }
+            main.post { statusView.text = text }
         }
     }
 }
