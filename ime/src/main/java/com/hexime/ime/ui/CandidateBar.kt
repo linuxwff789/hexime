@@ -19,6 +19,10 @@ import com.hexime.ime.engine.Candidate
  */
 class CandidateBar(context: Context) : LinearLayout(context) {
 
+    // 注意：Kotlin 属性初始化按声明顺序执行，pageButton() 里要用 palette，
+    // 所以 palette 必须声明在 prevView/nextView 之前（否则建按钮时 palette 还是 null → NPE）。
+    private var palette: Palette = HeximePalettes.byId(HeximeSettings.paletteId(context))
+
     private val row = LinearLayout(context).apply {
         orientation = LinearLayout.HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL
@@ -43,8 +47,6 @@ class CandidateBar(context: Context) : LinearLayout(context) {
 
     /** 翻页：-1 上一页（△）、+1 下一页（▽）。 */
     var onPage: ((Int) -> Unit)? = null
-
-    private var palette: Palette = HeximePalettes.byId(HeximeSettings.paletteId(context))
 
     init {
         orientation = HORIZONTAL
