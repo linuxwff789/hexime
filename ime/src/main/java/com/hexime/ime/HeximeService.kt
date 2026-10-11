@@ -50,6 +50,12 @@ class HeximeService : InputMethodService() {
     /** 顶栏常驻的「加词」按钮（换配色时要跟着改字色）。 */
     private var addWordView: TextView? = null
 
+    /** 顶栏常驻的「配色」按钮。 */
+    private var paletteView: TextView? = null
+
+    /** 顶栏容器（换配色时要改底色）。 */
+    private var topBarView: LinearLayout? = null
+
     private var statusView: TextView? = null
     private var candidateBar: CandidateBar? = null
     private var keyboardView: KeyboardView? = null
@@ -135,8 +141,20 @@ class HeximeService : InputMethodService() {
             setOnClickListener { showAddWordDialog(clipboardChineseWord().orEmpty()) }
         }
         addWordView = addWord
+        // 常驻「配色」按钮：候选栏变身配色条，点一下即换
+        val paletteBtn = TextView(this).apply {
+            text = "配色"
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+            setTextColor(palette.candidateText)
+            setPadding(dp(12), dp(4), dp(12), dp(4))
+            isClickable = true
+            setOnClickListener { showPalettePicker() }
+        }
+        paletteView = paletteBtn
+        topBarView = topBar
         topBar.addView(code, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
         topBar.addView(addWord)
+        topBar.addView(paletteBtn)
         topBar.addView(
             status,
             LinearLayout.LayoutParams(
@@ -408,15 +426,7 @@ class HeximeService : InputMethodService() {
                 keyboardView?.applyTheme(currentPalette(), appliedKeyHeight)
                 flashStatus("键盘高度 ${appliedKeyHeight}dp")
             }
-            "palette" -> {
-                val all = HeximePalettes.ALL
-                val index = all.indexOfFirst { it.id == HeximeSettings.paletteId(this) }
-                val next = all[(index + 1).mod(all.size)]
-                HeximeSettings.setPaletteId(this, next.id)
-                appliedPaletteId = next.id
-                applyPalette(next)
-                flashStatus("配色　${next.name}")
-            }
+            "palette" -> showPalettePicker()
             "addword" -> showAddWordDialog(clipboardChineseWord().orEmpty())
             // run / web_search / deploy / date：trime2 专属，暂不移植
         }
@@ -426,13 +436,30 @@ class HeximeService : InputMethodService() {
 
     private fun currentPalette(): Palette = HeximePalettes.byId(HeximeSettings.paletteId(this))
 
-    /** 换配色：键盘/候选栏/编码行/状态栏一起换，不用重建输入视图。 */
+    /** 换配色：键盘/候选栏/顶栏/编码行/状态栏一起换，不用重建输入视图。 */
     private fun applyPalette(palette: Palette) {
         keyboardView?.applyTheme(palette, HeximeSettings.keyboardHeightDp(this))
         candidateBar?.applyPalette(palette)
+        topBarView?.setBackgroundColor(palette.candidateBg)
         codeView?.setTextColor(palette.candidateText)
         addWordView?.setTextColor(palette.candidateText)
+        paletteView?.setTextColor(palette.candidateText)
         statusView?.setTextColor(palette.candidateComment)
+    }
+
+    /** 配色选择：候选栏变成一排配色（每项用自己的颜色画），点一下即换。 */
+    private fun showPalettePicker() {
+        val bar = candidateBar ?: return
+        bar.showPalettePicker { index ->
+            val p = HeximePalettes.ALL.getOrNull(index) ?: return@showPalettePicker
+            HeximeSettings.setPaletteId(this, p.id)
+            appliedPaletteId = p.id
+            applyPalette(p)
+            bar.clearPicker()
+            refresh()
+            flashStatus("配色　${p.name}")
+        }
+        flashStatus("选配色")
     }
 
     // ---------------------------------------------------------------- 加词
@@ -547,7 +574,10 @@ class HeximeService : InputMethodService() {
         composition = snapshot.composition
         if (composition.isNotEmpty()) lastCode = composition
         setCodeText(composition)
-        candidateBar?.setCandidates(snapshot.candidates)
+        // 配色选择条打开时不要用候选把它盖掉
+        if (candidateBar?.inPicker != true) {
+            candidateBar?.setCandidates(snapshot.candidates)
+        }
 
         val ic = currentInputConnection ?: return
         if (!commit.isNullOrEmpty()) {

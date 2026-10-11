@@ -43,6 +43,40 @@ class CandidateBar(context: Context) : HorizontalScrollView(context) {
         }
     }
 
+    // ---------------------------------------------------------------- 配色选择模式
+
+    private var pickerCallback: ((Int) -> Unit)? = null
+
+    /** 正在当配色选择条用（此时别被候选覆盖）。 */
+    val inPicker: Boolean get() = pickerCallback != null
+
+    /**
+     * 候选栏变身配色条：每一项用它**自己的配色**画出来（底色/字色就是那套配色的），
+     * 点一下回调下标。这样"键盘上就能改配色"且改之前先看到效果。
+     */
+    fun showPalettePicker(onPick: (Int) -> Unit) {
+        pickerCallback = onPick
+        row.removeAllViews()
+        HeximePalettes.ALL.forEachIndexed { index, p ->
+            val item = TextView(context).apply {
+                text = p.name
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+                setTextColor(p.candidateText)
+                setBackgroundColor(p.candidateBg)
+                setPadding(dp(12), dp(6), dp(12), dp(6))
+                gravity = Gravity.CENTER
+                isClickable = true
+                setOnClickListener { pickerCallback?.invoke(index) }
+            }
+            row.addView(item)
+        }
+        scrollTo(0, 0)
+    }
+
+    fun clearPicker() {
+        pickerCallback = null
+    }
+
     fun setCandidates(candidates: List<Candidate>) {
         // 注意：只清空 row 的子视图，不能 removeAllViews()，
         // 否则会把 row 本身从 HorizontalScrollView 里移除。
