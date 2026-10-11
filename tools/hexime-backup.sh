@@ -42,13 +42,42 @@ if [ "$RESTORE" = 1 ]; then
   log "force-stop $PKG（否则内存里的 prefs 会把写回的设置整份覆盖掉）"
   su -c "am force-stop $PKG" || true
   sleep 1
+
+  # app 的属主：恢复出来的文件必须是它的 —— 用 root 写出来的文件是 root:root，
+  # app(uid 10389) 读它直接 Permission denied，恢复等于没恢复（实测过）。
+  APP_UID="$(su -c "stat -c %u $APP")"
+  [ -n "$APP_UID" ] || fail "拿不到 $APP 的 uid"
+  # app 数据目录的 SELinux 标签（带类别，如 app_data_file:s0:c133,c257,c512,c768）。
+  # 用 root 新建的文件默认是 app_data_file:s0（没类别）——app 自己读不到，必须照抄这个标签。
+  APP_CTX="$(su -c "ls -Zd $APP" | awk '{print $1}')"
+  [ -n "$APP_CTX" ] || fail "拿不到 $APP 的 SELinux 标签"
+
+  # 目标目录可能还不存在（刚装完、app 还没写过 prefs）；新建时跟父目录同属主/同 SELinux 标签，
+  # 否则 app 自己往里写会失败。
+  ensure_dir() {
+    local d="$1"
+    [ -d "$d" ] && return 0
+    su -c "mkdir -p '$d' && chown $APP_UID:$APP_UID '$d' && chcon '$APP_CTX' '$d'" \
+      || fail "建目录失败: $d"
+    log "新建目录 $d（属主 $APP_UID）"
+  }
+
+  # cat > 保留原 inode/属主（已存在时）；新建的文件要补属主 + 标签。
+  restore_file() {
+    local src="$1" dst="$2" dir
+    dir="$(dirname "$dst")"
+    ensure_dir "$dir"
+    su -c "cat > '$dst'" < "$src" || fail "写 $dst 失败"
+    su -c "chown $APP_UID:$APP_UID '$dst' && chcon '$APP_CTX' '$dst'" || fail "改属主/标签失败: $dst"
+    log "已恢复 $(basename "$dst")（$(wc -c < "$src" | tr -d ' ') 字节，属主 $APP_UID）"
+  }
+
   if [ -f "$WORK/custom_phrase.txt" ]; then
-    su -c "mkdir -p $APP/files/rime/user && cat > $APP/files/rime/user/custom_phrase.txt" < "$WORK/custom_phrase.txt"
-    log "已恢复 custom_phrase.txt（$(grep -vc '^#' "$WORK/custom_phrase.txt" || true) 条）"
+    restore_file "$WORK/custom_phrase.txt" "$APP/files/rime/user/custom_phrase.txt"
+    log "  词条数 $(grep -vc '^#' "$WORK/custom_phrase.txt" || true)"
   fi
   if [ -f "$WORK/hexime_settings.xml" ]; then
-    su -c "cat > $APP/shared_prefs/hexime_settings.xml" < "$WORK/hexime_settings.xml"
-    log "已恢复设置"
+    restore_file "$WORK/hexime_settings.xml" "$APP/shared_prefs/hexime_settings.xml"
   fi
   log "恢复完成 —— 打开输入法会重新部署词库"
   exit 0
