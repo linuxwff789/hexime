@@ -113,7 +113,16 @@ class KeyboardView(context: Context) : LinearLayout(context) {
         }
     }
 
+    /** 一行按键的桶：命中测试先按 y 命中行，再只扫那一行（不是每次扫全部 34 个键）。 */
+    private class RowBucket {
+        var top = Int.MAX_VALUE
+        var bottom = Int.MIN_VALUE
+        val keys = ArrayList<KeyHolder>(10)
+    }
+
     private val keys = ArrayList<KeyHolder>()
+    private val buckets = ArrayList<RowBucket>(6)
+    private var currentBucket: RowBucket? = null
     private val activePointers = SparseArray<KeyHolder>()
     private val longPressRunnables = SparseArray<Runnable>()
 
@@ -319,27 +328,42 @@ class KeyboardView(context: Context) : LinearLayout(context) {
     private fun keyAt(x: Float, y: Float): KeyHolder? {
         val px = x.toInt()
         val py = y.toInt()
-        for (key in keys) {
-            if (!key.rect.isEmpty && key.rect.contains(px, py)) return key
+        for (bucket in buckets) {
+            if (py < bucket.top || py > bucket.bottom) continue // 先按行过滤
+            for (key in bucket.keys) {
+                if (!key.rect.isEmpty && key.rect.contains(px, py)) return key
+            }
         }
-        // 兜底：点在键缝/行缝上时按最近的键算，别再出现「只有震动没有字」
+        // 兜底：点在键缝/行缝上时按最近的键算，别再出现「只有震动没有字」。
+        // 只扫 y 距离最近的那一行（原来是扫全部键）。
         val tol = TOUCH_SLOP_DP * resources.displayMetrics.density
+        var bestRow: RowBucket? = null
+        var bestDy = Float.MAX_VALUE
+        for (bucket in buckets) {
+            if (bucket.keys.isEmpty() || bucket.bottom < bucket.top) continue
+            val dy = when {
+                py < bucket.top -> (bucket.top - py).toFloat()
+                py > bucket.bottom -> (py - bucket.bottom).toFloat()
+                else -> 0f
+            }
+            if (dy < bestDy) {
+                bestDy = dy
+                bestRow = bucket
+            }
+        }
+        val row = bestRow ?: return null
+        if (bestDy > tol) return null
         var best: KeyHolder? = null
         var bestScore = Float.MAX_VALUE
-        for (key in keys) {
+        for (key in row.keys) {
             if (key.rect.isEmpty) continue
             val dx = when {
                 px < key.rect.left -> (key.rect.left - px).toFloat()
                 px > key.rect.right -> (px - key.rect.right).toFloat()
                 else -> 0f
             }
-            val dy = when {
-                py < key.rect.top -> (key.rect.top - py).toFloat()
-                py > key.rect.bottom -> (py - key.rect.bottom).toFloat()
-                else -> 0f
-            }
-            if (dx > tol || dy > tol) continue
-            val score = dx + dy
+            if (dx > tol) continue
+            val score = dx + bestDy
             if (score < bestScore) {
                 bestScore = score
                 best = key
@@ -355,6 +379,18 @@ class KeyboardView(context: Context) : LinearLayout(context) {
             // 否则 rect 为空，命中测试永远失败。
             key.view.getDrawingRect(key.rect)
             offsetDescendantRectToMyCoords(key.view, key.rect)
+        }
+        // 更新每行的 y 范围，供命中测试快速过滤
+        for (bucket in buckets) {
+            var lo = Int.MAX_VALUE
+            var hi = Int.MIN_VALUE
+            for (key in bucket.keys) {
+                if (key.rect.isEmpty) continue
+                if (key.rect.top < lo) lo = key.rect.top
+                if (key.rect.bottom > hi) hi = key.rect.bottom
+            }
+            bucket.top = lo
+            bucket.bottom = hi
         }
     }
 
@@ -381,15 +417,21 @@ class KeyboardView(context: Context) : LinearLayout(context) {
     private fun build() {
         removeAllViews()
         keys.clear()
+        buckets.clear()
         activePointers.clear()
         cancelAllLongPress()
         stopRepeat()
         val d = def ?: return
+        buckets.clear()
+        currentBucket = null
         for (row in d.rows) {
             val rl = LinearLayout(context).apply {
                 orientation = HORIZONTAL
                 setPadding(0, dp(2), 0, dp(2))
             }
+            val bucket = RowBucket()
+            buckets.add(bucket)
+            currentBucket = bucket
             // 行高 = 键盘总高 × 该行 h%（小鹤的 h% 每页加起来都是 100，所以各页总高一致）
             val h = (totalHeightPx * row.heightPercent / 100f).toInt().coerceAtLeast(dp(16))
             for (k in row.keys) {
@@ -417,8 +459,7 @@ class KeyboardView(context: Context) : LinearLayout(context) {
                 lp.marginStart = dp(2)
                 lp.marginEnd = dp(2)
                 rl.addView(container, lp)
-                keys.add(
-                    KeyHolder(
+                val holder = KeyHolder(
                         view = container,
                         labelView = labelView,
                         k = k,
@@ -429,8 +470,9 @@ class KeyboardView(context: Context) : LinearLayout(context) {
                         down = k.swipeDown?.let { toAction(it, shift) },
                         left = k.swipeLeft?.let { toAction(it, shift) },
                         right = k.swipeRight?.let { toAction(it, shift) },
-                    ),
                 )
+                keys.add(holder)
+                currentBucket?.keys?.add(holder)
             }
             addView(rl)
         }

@@ -57,13 +57,11 @@ class RimeEngine : InputEngine {
         if (sessionId == 0L) return EngineSnapshot()
         val composition = RimeNative.composition(sessionId)
         val raw = RimeNative.candidates(sessionId)
+        // 候选串是 "text\tcomment"，但界面只用 text（候选栏/加词都不看 comment）。
+        // 原来每个候选 indexOf + 两次 substring，现在只切一次，少一半字符串分配。
         val candidates = raw.map { item ->
             val tab = item.indexOf('\t')
-            if (tab >= 0) {
-                Candidate(item.substring(0, tab), item.substring(tab + 1))
-            } else {
-                Candidate(item)
-            }
+            if (tab >= 0) Candidate(item.substring(0, tab)) else Candidate(item)
         }
         val page = RimeNative.pageInfo(sessionId)
         return EngineSnapshot(
