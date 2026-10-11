@@ -95,6 +95,9 @@ engine:
     - fallback_segmentor
   translators:
     - table_translator
+    # 加词：custom_phrase 走 stabledb，直读 user 目录下的 custom_phrase.txt
+    # （小鹤方案原作者把 translator 的 enable_user_dict 关了，用户词库只能走这条 txt 路）
+    - table_translator@custom_phrase
 
 speller:
   alphabet: '/;zyxwvutsrqponmlkjihgfedcba'
@@ -110,6 +113,15 @@ translator:
   enable_sentence: false
   enable_completion: false
   enable_user_dict: false
+
+# 用户加词：词条写在 <user>/custom_phrase.txt，一行「词<tab>码」
+custom_phrase:
+  dictionary: ""
+  user_dict: custom_phrase
+  db_class: stabledb
+  enable_completion: false
+  enable_sentence: false
+  initial_quality: 99
 
 # 次选：组合中按 . 直接上屏第 2 个候选（等价于按数字 2）
 key_binder:

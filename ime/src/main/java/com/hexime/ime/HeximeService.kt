@@ -1,5 +1,7 @@
 package com.hexime.ime
 
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
 import android.graphics.Color
 import android.inputmethodservice.InputMethodService
@@ -25,6 +27,7 @@ import com.hexime.ime.engine.RimeEngine
 import com.hexime.ime.ui.CandidateBar
 import com.hexime.ime.ui.KeyAction
 import com.hexime.ime.ui.KeyboardView
+import java.io.File
 import java.util.concurrent.Executors
 
 class HeximeService : InputMethodService() {
@@ -52,8 +55,14 @@ class HeximeService : InputMethodService() {
     /** 当前组合串（键盘侧判断 `.` 键是否要当次选用）。 */
     private var composition = ""
 
+    /** 最近一次非空组合串：openfly 打满 4 码会自动上屏，加词时组合区可能已经空了。 */
+    private var lastCode = ""
+
     /** 最近一次按键到下一帧的耗时（ms），用于评估「跟手性」。 */
     private var latencyMs = 0.0
+
+    /** 状态栏临时提示的恢复任务。 */
+    private var flashRunnable: Runnable? = null
 
     private val vibrator: Vibrator? by lazy {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -335,8 +344,81 @@ class HeximeService : InputMethodService() {
                 appliedKeyHeight = HeximeSettings.keyboardHeightDp(this)
                 setInputView(onCreateInputView())
             }
-            // addword / run / web_search / deploy / date：trime2 专属，暂不移植
+            "addword" -> addWord()
+            // run / web_search / deploy / date：trime2 专属，暂不移植
         }
+    }
+
+    // ---------------------------------------------------------------- 加词
+
+    /**
+     * 加词：词从系统剪贴板取（聊天/网页里长按选中的文本），码自动取当前组合区
+     * （打满 4 码被 auto_select 上屏时用最近一次编码），追加到 user/custom_phrase.txt。
+     *
+     * openfly 的 translator 是 enable_user_dict: false —— 引擎不读用户词库，
+     * 所以走方案的 custom_phrase(stabledb)：txt 直读，写完重建会话即生效。
+     */
+    private fun addWord() {
+        val word = clipboardChineseWord()
+        if (word == null) {
+            flashStatus("加词：剪贴板里没有中文词")
+            return
+        }
+        val code = (composition.ifEmpty { lastCode }).replace(" ", "").trim()
+        if (code.isEmpty() || !code.all { it in 'a'..'z' || it == ';' || it == '/' }) {
+            flashStatus("加词：先在键盘上打出编码，再按加词")
+            return
+        }
+        if (code.length > MAX_CODE_LENGTH) {
+            flashStatus("加词：编码最多 $MAX_CODE_LENGTH 位（$code）")
+            return
+        }
+        if (!appendCustomPhrase(word, code)) {
+            flashStatus("加词：写 custom_phrase.txt 失败")
+            return
+        }
+        // 重建会话 → translator 重新打开 stabledb，新词立即能打出来
+        engine.destroySession()
+        ensureSession()
+        refresh()
+        flashStatus("已加词　$word → $code")
+    }
+
+    /** 剪贴板里的中文词（没有汉字 / 太长都不算）。 */
+    private fun clipboardChineseWord(): String? = runCatching {
+        val cm = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: return null
+        val clip = cm.primaryClip ?: return null
+        if (clip.itemCount == 0) return null
+        val text = clip.getItemAt(0).coerceToText(this).toString().trim()
+        if (text.isEmpty() || text.length > MAX_WORD_LENGTH) return null
+        if (!text.any { it.code in 0x4E00..0x9FFF }) return null
+        text.replace("\t", "").replace("\n", "")
+    }.getOrNull()
+
+    /** 追加一行「词<tab>码」到 user/custom_phrase.txt。 */
+    private fun appendCustomPhrase(word: String, code: String): Boolean {
+        val file = File(RimeDataInstaller.userDir(this), CUSTOM_PHRASE_FILE)
+        return try {
+            file.parentFile?.mkdirs()
+            if (!file.exists()) file.writeText("# Rime table\n# coding: utf-8\n")
+            val line = "$word\t$code"
+            if (file.readLines().none { it.trim() == line }) file.appendText(line + "\n")
+            Log.i(TAG, "addword: $line -> ${file.absolutePath}")
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "addword failed", e)
+            false
+        }
+    }
+
+    /** 顶部状态栏临时显示一条提示，2.5 秒后恢复常规状态。 */
+    private fun flashStatus(message: String) {
+        val bar = statusView ?: return
+        bar.text = message
+        flashRunnable?.let { main.removeCallbacks(it) }
+        val runnable = Runnable { updateStatus() }
+        flashRunnable = runnable
+        main.postDelayed(runnable, FLASH_MS)
     }
 
     private fun onSelectCandidate(index: Int) {
@@ -351,6 +433,7 @@ class HeximeService : InputMethodService() {
         val commit = engine.takeCommit()
         val snapshot = engine.snapshot()
         composition = snapshot.composition
+        if (composition.isNotEmpty()) lastCode = composition
         candidateBar?.setCandidates(snapshot.candidates)
 
         val ic = currentInputConnection ?: return
@@ -398,6 +481,18 @@ class HeximeService : InputMethodService() {
 
     private companion object {
         const val TAG = "HeximeService"
+
+        /** 加词：小鹤音形码最长 4 位（schema 的 speller.max_code_length）。 */
+        const val MAX_CODE_LENGTH = 4
+
+        /** 加词：剪贴板词最长多少个字符。 */
+        const val MAX_WORD_LENGTH = 16
+
+        /** 状态栏提示停留时间。 */
+        const val FLASH_MS = 2500L
+
+        /** 用户词表（方案 custom_phrase 的 stabledb 源文件）。 */
+        const val CUSTOM_PHRASE_FILE = "custom_phrase.txt"
 
         /** 具名功能键 → X11 keysym（引擎优先）。 */
         val NAMED_KEYSYM = mapOf(
