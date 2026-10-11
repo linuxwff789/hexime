@@ -352,10 +352,10 @@ class HeximeService : InputMethodService() {
                 keyboardView?.setShift(shiftOn)
                 return
             }
-            "copy" -> return contextAction(android.R.id.copy)
-            "cut" -> return contextAction(android.R.id.cut)
-            "paste" -> return contextAction(android.R.id.paste)
-            "select_all" -> return contextAction(android.R.id.selectAll)
+            "copy" -> contextAction(android.R.id.copy)
+            "cut" -> contextAction(android.R.id.cut)
+            "paste" -> contextAction(android.R.id.paste)
+            "select_all" -> contextAction(android.R.id.selectAll)
             "undo" -> return sendKeyWithMeta(KeyEvent.KEYCODE_Z, KeyEvent.META_CTRL_ON)
             "redo" -> return sendKeyWithMeta(KeyEvent.KEYCODE_Y, KeyEvent.META_CTRL_ON)
         }

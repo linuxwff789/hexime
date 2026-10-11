@@ -4,11 +4,14 @@ import android.content.Context
 import android.content.res.ColorStateList
 import android.graphics.Rect
 import android.graphics.drawable.ColorDrawable
+import android.graphics.drawable.Drawable
+import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.StateListDrawable
 import android.os.Handler
 import android.os.Looper
 import android.text.SpannableStringBuilder
 import android.text.Spanned
+import android.text.style.ForegroundColorSpan
 import android.text.style.RelativeSizeSpan
 import android.util.SparseArray
 import android.util.TypedValue
@@ -492,8 +495,8 @@ class KeyboardView(context: Context) : LinearLayout(context) {
 
     private fun kindOf(k: KeyDef): KeyKind {
         val c = k.click
-        if (c is KbAction && c.k == "key") {
-            return when (c.v) {
+        if (c is KbAction && c.kind == "key") {
+            return when (c.arg) {
                 "Return", "Enter", "KP_Enter" -> KeyKind.ENTER
                 "space" -> KeyKind.SPACE
                 else -> KeyKind.FUNC
@@ -601,15 +604,26 @@ class KeyboardView(context: Context) : LinearLayout(context) {
         }
     }
 
-    private fun keyBackground(): StateListDrawable = StateListDrawable().apply {
-        addState(intArrayOf(android.R.attr.state_pressed), ColorDrawable(palette.keyPressed))
-        addState(intArrayOf(), ColorDrawable(palette.keyFace))
+    /**
+     * 键底：圆角 + 1dp 边框。浅色那几套配色（小鹤/朝朝/纯白/谷歌/IOS）键面都接近白，
+     * 差别主要就在边框色和功能键/回车键的底色上，所以这两样必须画出来。
+     */
+    private fun keyBackground(kind: KeyKind): Drawable = StateListDrawable().apply {
+        addState(intArrayOf(android.R.attr.state_pressed), ColorDrawable(facePressed(kind)))
+        addState(intArrayOf(), rounded(faceColor(kind), palette.keyBorder))
+    }
+
+    private fun rounded(fill: Int, border: Int): Drawable = GradientDrawable().apply {
+        shape = GradientDrawable.RECTANGLE
+        setColor(fill)
+        cornerRadius = dp(KEY_RADIUS_DP).toFloat()
+        if (border != fill) setStroke(dp(1), border)
     }
 
     /** 键面文字颜色：按下态用配色的 pressed 文字色（小鹤的按下态经常是反色）。 */
-    private fun keyTextColors(): ColorStateList = ColorStateList(
+    private fun keyTextColors(kind: KeyKind): ColorStateList = ColorStateList(
         arrayOf(intArrayOf(android.R.attr.state_pressed), intArrayOf()),
-        intArrayOf(palette.keyPressedText, palette.keyText),
+        intArrayOf(facePressedText(kind), faceText(kind)),
     )
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
