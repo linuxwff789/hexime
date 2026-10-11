@@ -3,6 +3,7 @@ package com.hexime.ime
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.graphics.Color
 import android.inputmethodservice.InputMethodService
 import android.os.Build
 import android.os.Handler
@@ -125,7 +126,22 @@ class HeximeService : InputMethodService() {
 
     // ---------------------------------------------------------------- 生命周期
 
-    override fun onCreateInputView(): View {
+    override fun onCreateInputView(): View = try {
+        buildInputView()
+    } catch (t: Throwable) {
+        // 输入法视图建失败也**不能崩**：崩了就是进程反复重启、键盘永远弹不出来（用户看到「打不开」）。
+        // 退回一个能看懂的提示，顺便把错误带出来，方便定位。
+        Log.e(TAG, "onCreateInputView failed", t)
+        TextView(this).apply {
+            text = "Hexime 键盘创建失败：${t.message}"
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+            setPadding(dp(16), dp(20), dp(16), dp(20))
+            setBackgroundColor(Color.DKGRAY)
+            setTextColor(Color.WHITE)
+        }
+    }
+
+    private fun buildInputView(): View {
         val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         val palette = currentPalette()
 
