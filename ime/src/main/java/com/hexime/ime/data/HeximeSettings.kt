@@ -72,7 +72,7 @@ object HeximeSettings {
 
     /** 方案 id（见 Schemas）。 */
     fun schemaId(context: Context): String =
-        prefs(context).getString(KEY_SCHEMA, null) ?: Schemas.DEFAULT_ID
+        Schemas.normalize(prefs(context).getString(KEY_SCHEMA, null) ?: Schemas.DEFAULT_ID)
 
     fun setSchemaId(context: Context, id: String) {
         prefs(context).edit().putString(KEY_SCHEMA, id).apply()
