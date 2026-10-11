@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      平台没有 Theme.DeviceDefault.DayNight.NoActionBar 这个 style（AAPT 直接报 not found），
+      所以自己继承 DayNight 再把标题栏去掉。设置页的配色在代码里按 uiMode 取（见 MainActivity.m3Colors）。
+    -->
+    <style name="Theme.Hexime" parent="@android:style/Theme.DeviceDefault.DayNight">
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowActionBar">false</item>
+    </style>
+</resources>
