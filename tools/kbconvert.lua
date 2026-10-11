@@ -241,6 +241,12 @@ local function convert(path)
       if o.style == "space" and o.up == nil then
         o.up = { k = "cmd", v = "addword" }
       end
+      -- hexime 扩展：选单里那个「语音」键在 hexime 是空动作（k=none），
+      -- 换成「方案」——循环切 openfly / luna_pinyin 等（trime2 的选单里有方案，hexime 原本没有）。
+      if o.click and o.click.k == "none" and (o.label == "语音" or o.label == "語音") then
+        o.label = "方案"
+        o.click = { k = "cmd", v = "schema" }
+      end
       out.keys[#out.keys + 1] = o
     end
     out.sum = math.floor(sum * 100 + 0.5) / 100

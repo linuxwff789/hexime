@@ -33,6 +33,7 @@ import android.widget.Switch
 import android.widget.TextView
 import com.hexime.ime.data.HeximeSettings
 import com.hexime.ime.data.RimeDataInstaller
+import com.hexime.ime.data.Schemas
 import com.hexime.ime.engine.RimeEngine
 import com.hexime.ime.ui.HeximePalettes
 import java.util.concurrent.Executors
@@ -105,6 +106,29 @@ class MainActivity : Activity() {
 
         // ---------------- 卡片：外观 ----------------
         root.addView(card("外观") { box ->
+            box.addView(sectionLabel("方案（也可以点选单里的「方案」键循环切）"))
+            val schemaIds = Schemas.ALL
+            box.addView(Spinner(this).apply {
+                adapter = ArrayAdapter(
+                    this@MainActivity,
+                    android.R.layout.simple_spinner_dropdown_item,
+                    schemaIds.map { it.second },
+                )
+                setSelection(
+                    schemaIds.indexOfFirst { it.first == HeximeSettings.schemaId(this@MainActivity) }
+                        .coerceAtLeast(0),
+                )
+                background = rounded(c.surfaceContainer, 12f, c.outline, 1)
+                setPadding(dp(12), dp(10), dp(12), dp(10))
+                onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+                    override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                        HeximeSettings.setSchemaId(this@MainActivity, schemaIds[position].first)
+                    }
+
+                    override fun onNothingSelected(parent: AdapterView<*>?) {}
+                }
+            })
+
             box.addView(sectionLabel("配色（来自 trime2 小鹤主题，换完下次弹键盘生效）"))
             val palettes = HeximePalettes.ALL
             box.addView(Spinner(this).apply {

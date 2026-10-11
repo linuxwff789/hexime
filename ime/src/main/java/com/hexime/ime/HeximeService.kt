@@ -21,6 +21,7 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import com.hexime.ime.data.HeximeSettings
 import com.hexime.ime.data.RimeDataInstaller
+import com.hexime.ime.data.Schemas
 import com.hexime.ime.engine.InputEngine
 import com.hexime.ime.engine.RimeEngine
 import com.hexime.ime.ui.AddWordDialog
@@ -80,8 +81,6 @@ class HeximeService : InputMethodService() {
     private var candidateBar: CandidateBar? = null
     private var keyboardView: KeyboardView? = null
 
-    private val schemas = listOf("openfly", "luna_pinyin")
-    private var schemaIndex = 0
 
     private var shiftOn = false
     private var asciiMode = false
@@ -210,6 +209,11 @@ class HeximeService : InputMethodService() {
         appliedKeyHeight = HeximeSettings.keyboardHeightDp(this)
         appliedPaletteId = HeximeSettings.paletteId(this)
         refreshSettingsCache()
+        // 设置页里改了方案 → 回到键盘时跟上（当前会话还在用旧方案的话）
+        val wantedSchema = HeximeSettings.schemaId(this)
+        if (ready && engine.hasSession() && wantedSchema != engine.currentSchema()) {
+            applySchema(wantedSchema)
+        }
         updateModeChip()
         updateStatus()
         return root
@@ -290,7 +294,7 @@ class HeximeService : InputMethodService() {
     private fun ensureSession() {
         if (!ready) return
         if (!engine.hasSession()) {
-            engine.createSession(schemas[schemaIndex])
+            engine.createSession(HeximeSettings.schemaId(this))
         }
     }
 
@@ -443,6 +447,25 @@ class HeximeService : InputMethodService() {
         ic.sendKeyEvent(KeyEvent(now, now, KeyEvent.ACTION_UP, keyCode, 0, meta))
     }
 
+    /**
+     * 切方案：写偏好 + 引擎切 + 键盘跟着换。
+     * 拼音用普通 QWERTY（音形助记键盘上的字根提示没意义），音形回助记键盘。
+     * 引擎还没起来时只记偏好，建会话时按它开。
+     */
+    private fun applySchema(id: String) {
+        HeximeSettings.setSchemaId(this, id)
+        if (!ready || !engine.hasSession()) return
+        if (!engine.selectSchema(id)) {
+            flashStatus("切不了方案：${Schemas.label(id)}")
+            return
+        }
+        keyboardView?.showKeyboard(if (id == Schemas.OPENFLY_ID) "defaultVJ" else "default")
+        syncAsciiFromKeyboard()
+        flashStatus("方案：${Schemas.label(id)}")
+        updateStatus()
+        refresh()
+    }
+
     /** 中/英切换：空格长按、选单的中英键、顶栏状态标识都走这里。 */
     private fun toggleAsciiMode() {
         asciiMode = !asciiMode
@@ -493,6 +516,7 @@ class HeximeService : InputMethodService() {
                 flashStatus("键盘高度 ${appliedKeyHeight}dp")
             }
             "palette" -> showPalettePicker()
+            "schema" -> applySchema(Schemas.next(engine.currentSchema()))
             "addword" -> showAddWordDialog(clipboardChineseWord().orEmpty())
             // run / web_search / deploy / date：trime2 专属，暂不移植
         }
@@ -665,7 +689,7 @@ class HeximeService : InputMethodService() {
             !ready -> "部署中…（首次会编译词库）"
             else -> buildString {
                 // 顶栏要留出「＋词」「配色」按钮的位置，状态文字保持短
-                append(engine.currentSchema())
+                append(Schemas.label(engine.currentSchema()))
                 if (latencyOn) {
                     append(" · %.1fms".format(latencyMs))
                 }

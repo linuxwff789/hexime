@@ -10,6 +10,7 @@ object HeximeSettings {
     private const val KEY_SHOW_LATENCY = "show_latency"
     private const val KEY_KEYBOARD_HEIGHT = "keyboard_height_dp"
     private const val KEY_PALETTE = "palette_id"
+    private const val KEY_SCHEMA = "schema_id"
 
     /** 震动强度百分比 0..100，0 = 关闭。 */
     const val VIBRATION_DEFAULT = 30
@@ -67,6 +68,14 @@ object HeximeSettings {
 
     fun setPaletteId(context: Context, id: String) {
         prefs(context).edit().putString(KEY_PALETTE, id).apply()
+    }
+
+    /** 方案 id（见 Schemas）。 */
+    fun schemaId(context: Context): String =
+        prefs(context).getString(KEY_SCHEMA, null) ?: Schemas.DEFAULT_ID
+
+    fun setSchemaId(context: Context, id: String) {
+        prefs(context).edit().putString(KEY_SCHEMA, id).apply()
     }
 
     /** 默认配色（与 HeximePalettes.DEFAULT_ID 一致，这里写字面量避免 data 层依赖 ui 层）。 */
