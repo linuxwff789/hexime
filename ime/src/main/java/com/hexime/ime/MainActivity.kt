@@ -21,11 +21,14 @@ import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.view.inputmethod.InputMethodManager
+import android.widget.AdapterView
+import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.SeekBar
+import android.widget.Spinner
 import android.widget.Switch
 import android.widget.TextView
 import com.hexime.ime.data.HeximeSettings
@@ -47,7 +50,6 @@ class MainActivity : Activity() {
     private lateinit var statusView: TextView
     private lateinit var vibValue: TextView
     private lateinit var heightValue: TextView
-    private lateinit var paletteRow: LinearLayout
     private val io = Executors.newSingleThreadExecutor()
     private val main = Handler(Looper.getMainLooper())
 
@@ -104,12 +106,27 @@ class MainActivity : Activity() {
         // ---------------- 卡片：外观 ----------------
         root.addView(card("外观") { box ->
             box.addView(sectionLabel("配色（来自 trime2 小鹤主题，换完下次弹键盘生效）"))
-            paletteRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-            box.addView(ScrollView(this).apply {
-                isHorizontalScrollBarEnabled = false
-                addView(paletteRow)
+            val palettes = HeximePalettes.ALL
+            box.addView(Spinner(this).apply {
+                adapter = ArrayAdapter(
+                    this@MainActivity,
+                    android.R.layout.simple_spinner_dropdown_item,
+                    palettes.map { it.name },
+                )
+                setSelection(
+                    palettes.indexOfFirst { it.id == HeximeSettings.paletteId(this@MainActivity) }
+                        .coerceAtLeast(0),
+                )
+                background = rounded(c.surfaceContainer, 12f, c.outline, 1)
+                setPadding(dp(12), dp(10), dp(12), dp(10))
+                onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+                    override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                        HeximeSettings.setPaletteId(this@MainActivity, palettes[position].id)
+                    }
+
+                    override fun onNothingSelected(parent: AdapterView<*>?) {}
+                }
             })
-            fillPaletteChips()
 
             box.addView(sectionLabel("键盘高度（总高，各键盘页等高）"))
             heightValue = TextView(this).apply {
@@ -291,36 +308,6 @@ class MainActivity : Activity() {
             )
             setOnCheckedChangeListener { _, value -> onChange(value) }
         })
-    }
-
-    /** 12 套配色做成小色块（用那套配色自己的键面/字色画）。 */
-    private fun fillPaletteChips() {
-        paletteRow.removeAllViews()
-        val current = HeximeSettings.paletteId(this)
-        HeximePalettes.ALL.forEach { p ->
-            val selected = p.id == current
-            paletteRow.addView(TextView(this).apply {
-                text = p.name
-                textSize = 14f
-                gravity = Gravity.CENTER
-                setTextColor(p.keyText)
-                background = rounded(
-                    p.keyFace,
-                    12f,
-                    if (selected) c.accent else c.outline,
-                    if (selected) 2 else 1,
-                )
-                setPadding(dp(14), dp(8), dp(14), dp(8))
-                setOnClickListener {
-                    HeximeSettings.setPaletteId(this@MainActivity, p.id)
-                    fillPaletteChips()
-                }
-                layoutParams = LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.WRAP_CONTENT,
-                    ViewGroup.LayoutParams.WRAP_CONTENT,
-                ).apply { marginEnd = dp(8) }
-            })
-        }
     }
 
     private abstract class SimpleSeek : SeekBar.OnSeekBarChangeListener {

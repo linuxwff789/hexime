@@ -85,6 +85,7 @@ class KeyboardView(context: Context) : LinearLayout(context) {
         /** 键面主字（容器里可能还有键角的长按字符）。 */
         val labelView: TextView,
         val k: KeyDef,
+        val kind: KeyKind,
         val click: KeyAction,
         val long: KeyAction?,
         val composing: KeyAction?,
@@ -177,7 +178,9 @@ class KeyboardView(context: Context) : LinearLayout(context) {
     fun setShift(on: Boolean) {
         if (shift == on) return
         shift = on
-        keys.forEach { it.labelView.text = face(it.k.label, it.k.hint, it.k.style, shift) }
+        keys.forEach {
+            it.labelView.text = face(it.k.label, it.k.hint, it.k.style, shift, faceSymbol(it.kind))
+        }
     }
 
     /** 键盘高度设置变化后重建（键高是构建期算出来的）。 */
@@ -251,6 +254,10 @@ class KeyboardView(context: Context) : LinearLayout(context) {
         if (current.consumed || current.longFired) return
         val dx = x - current.downX
         val dy = y - current.downY
+        // 手指一动就先取消长按计时：否则慢一点的滑动会先被长按（400ms）吃掉，
+        // 表现就是「a 键上滑全选没反应，反而蹦出长按的字符」。
+        val moveSlop = 6f * resources.displayMetrics.density
+        if (abs(dx) > moveSlop || abs(dy) > moveSlop) cancelLongPress(pointerId)
         val slop = SWIPE_SLOP_DP * resources.displayMetrics.density
         if (abs(dx) < slop && abs(dy) < slop) return
         val dir = if (abs(dx) > abs(dy)) {
@@ -436,10 +443,11 @@ class KeyboardView(context: Context) : LinearLayout(context) {
             val h = (totalHeightPx * row.heightPercent / 100f).toInt().coerceAtLeast(dp(16))
             for (k in row.keys) {
                 val placeholder = k.label.isEmpty() && k.hint.isEmpty() && k.click == null
+                val kind = kindOf(k)
                 val labelView = TextView(context).apply {
-                    text = face(k.label, k.hint, k.style, shift)
+                    text = face(k.label, k.hint, k.style, shift, faceSymbol(kind))
                     setTextSize(TypedValue.COMPLEX_UNIT_SP, if (k.hint.isNotEmpty()) 15f else 19f)
-                    setTextColor(keyTextColors())
+                    setTextColor(keyTextColors(kind))
                     gravity = Gravity.CENTER
                     setPadding(0, 0, 0, 0)
                     isClickable = false
@@ -450,10 +458,10 @@ class KeyboardView(context: Context) : LinearLayout(context) {
                 }
                 val container = FrameLayout(context).apply {
                     isClickable = false
-                    background = if (placeholder) null else keyBackground()
+                    background = if (placeholder) null else keyBackground(kind)
                     addView(labelView)
                     // 键角上的长按字符（小鹤键盘绑定的长按内容）
-                    if (!placeholder && k.longLabel.isNotEmpty()) addView(cornerLabel(k.longLabel))
+                    if (!placeholder && k.longLabel.isNotEmpty()) addView(cornerLabel(k.longLabel, kind))
                 }
                 val lp = LayoutParams(0, h, k.width)
                 lp.marginStart = dp(2)
@@ -463,6 +471,7 @@ class KeyboardView(context: Context) : LinearLayout(context) {
                         view = container,
                         labelView = labelView,
                         k = k,
+                        kind = kind,
                         click = toAction(k.click, shift),
                         long = k.long?.let { toAction(it, shift) },
                         composing = k.composing?.let { candToAction(it) },
@@ -478,11 +487,57 @@ class KeyboardView(context: Context) : LinearLayout(context) {
         }
     }
 
-    /** 键角的长按字符（trime2 也画在键角上，10sp 半透明）。 */
-    private fun cornerLabel(text: String) = TextView(context).apply {
+    /** 键的种类：小鹤主题里 key / functional / enter / space 是四套样式（底色和字色都不同）。 */
+    private enum class KeyKind { NORMAL, FUNC, ENTER, SPACE }
+
+    private fun kindOf(k: KeyDef): KeyKind {
+        val c = k.click
+        if (c is KbAction && c.k == "key") {
+            return when (c.v) {
+                "Return", "Enter", "KP_Enter" -> KeyKind.ENTER
+                "space" -> KeyKind.SPACE
+                else -> KeyKind.FUNC
+            }
+        }
+        return KeyKind.NORMAL
+    }
+
+    private fun faceColor(kind: KeyKind) = when (kind) {
+        KeyKind.FUNC -> palette.funcFace
+        KeyKind.ENTER -> palette.enterFace
+        KeyKind.SPACE -> palette.spaceFace
+        KeyKind.NORMAL -> palette.keyFace
+    }
+
+    private fun facePressed(kind: KeyKind) = when (kind) {
+        KeyKind.FUNC -> palette.funcPressed
+        KeyKind.ENTER -> palette.enterPressed
+        KeyKind.SPACE -> palette.keyPressed
+        KeyKind.NORMAL -> palette.keyPressed
+    }
+
+    private fun faceText(kind: KeyKind) = when (kind) {
+        KeyKind.FUNC -> palette.funcText
+        KeyKind.ENTER -> palette.enterText
+        KeyKind.SPACE -> palette.spaceText
+        KeyKind.NORMAL -> palette.keyText
+    }
+
+    private fun faceSymbol(kind: KeyKind) =
+        if (kind == KeyKind.FUNC) palette.funcSymbol else palette.keySymbol
+
+    private fun facePressedText(kind: KeyKind) = when (kind) {
+        KeyKind.FUNC -> palette.funcPressedText
+        KeyKind.ENTER -> palette.enterPressedText
+        KeyKind.SPACE -> palette.keyPressedText
+        KeyKind.NORMAL -> palette.keyPressedText
+    }
+
+    /** 键角的长按字符（trime2 也画在键角上，10sp）。 */
+    private fun cornerLabel(text: String, kind: KeyKind) = TextView(context).apply {
         this.text = text
         setTextSize(TypedValue.COMPLEX_UNIT_SP, 10f)
-        setTextColor(keyTextColors())
+        setTextColor(faceSymbol(kind))
         alpha = 0.7f
         isClickable = false
         layoutParams = FrameLayout.LayoutParams(
@@ -496,22 +551,31 @@ class KeyboardView(context: Context) : LinearLayout(context) {
     }
 
     /** 键面文字：主字 + 小号 hint（小鹤助记键盘的韵母/字根）。 */
-    private fun face(label: String, hint: String, style: String, shift: Boolean): CharSequence {
+    private fun face(
+        label: String,
+        hint: String,
+        style: String,
+        shift: Boolean,
+        symbolColor: Int,
+    ): CharSequence {
         val main = when {
             label.isEmpty() && style == "space" -> "空格"
             shift && label.length == 1 && label[0] in 'a'..'z' -> label.uppercase()
             else -> label
         }
         if (hint.isEmpty()) return main
+        // 小字用 key_symbol_color（小鹤是灰的、孤寺是米白的），和主字分开上色
         if (main.isEmpty()) {
             val ss = SpannableStringBuilder(hint)
             ss.setSpan(RelativeSizeSpan(0.62f), 0, ss.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            ss.setSpan(ForegroundColorSpan(symbolColor), 0, ss.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
             return ss
         }
         val ss = SpannableStringBuilder(main).append("\n")
         val start = ss.length
         ss.append(hint)
         ss.setSpan(RelativeSizeSpan(0.55f), start, ss.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        ss.setSpan(ForegroundColorSpan(symbolColor), start, ss.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
         return ss
     }
 
@@ -560,6 +624,9 @@ class KeyboardView(context: Context) : LinearLayout(context) {
 
         /** 判定滑动所需的最小位移（dp）。 */
         const val SWIPE_SLOP_DP = 16f
+
+        /** 键圆角（trime2 的 key corner_radius 约 6dp）。 */
+        const val KEY_RADIUS_DP = 6
 
         const val DIR_UP = 0
         const val DIR_DOWN = 1

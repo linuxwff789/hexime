@@ -370,16 +370,26 @@ class HeximeService : InputMethodService() {
         sendDownUpKeyEvents(code)
     }
 
-    private fun contextAction(id: Int) {
-        currentInputConnection?.performContextMenuAction(id)
-    }
+    /** 编辑器认不认这个上下文动作（selectAll/copy/paste/cut）。 */
+    private fun contextAction(id: Int): Boolean =
+        currentInputConnection?.performContextMenuAction(id) ?: false
 
     private fun onCtrlKey(ch: Char) {
-        when (ch.lowercaseChar()) {
+        // 先试编辑器的「上下文动作」（selectAll/copy/paste/cut）—— 大多数 app 认；
+        // 不认的（自绘编辑器/终端等）就退回真发 Ctrl+字母 按键事件，否则 a 上滑全选会「没反应」。
+        val handled = when (ch.lowercaseChar()) {
             'a' -> contextAction(android.R.id.selectAll)
             'c' -> contextAction(android.R.id.copy)
             'v' -> contextAction(android.R.id.paste)
             'x' -> contextAction(android.R.id.cut)
+            else -> false
+        }
+        if (handled) return
+        when (ch.lowercaseChar()) {
+            'a' -> sendKeyWithMeta(KeyEvent.KEYCODE_A, KeyEvent.META_CTRL_ON)
+            'c' -> sendKeyWithMeta(KeyEvent.KEYCODE_C, KeyEvent.META_CTRL_ON)
+            'v' -> sendKeyWithMeta(KeyEvent.KEYCODE_V, KeyEvent.META_CTRL_ON)
+            'x' -> sendKeyWithMeta(KeyEvent.KEYCODE_X, KeyEvent.META_CTRL_ON)
             'z' -> sendKeyWithMeta(KeyEvent.KEYCODE_Z, KeyEvent.META_CTRL_ON)
             'y' -> sendKeyWithMeta(KeyEvent.KEYCODE_Y, KeyEvent.META_CTRL_ON)
         }
@@ -498,7 +508,7 @@ class HeximeService : InputMethodService() {
         candidateBar?.applyPalette(palette)
         topBarView?.setBackgroundColor(palette.candidateBg)
         updateModeChip()
-        codeView?.setTextColor(palette.candidateText)
+        codeView?.setTextColor(palette.statusText)
         addWordView?.setTextColor(palette.candidateText)
         paletteView?.setTextColor(palette.candidateText)
         statusView?.setTextColor(palette.candidateComment)
