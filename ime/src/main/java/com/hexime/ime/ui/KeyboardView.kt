@@ -160,6 +160,9 @@ class KeyboardView(context: Context) : LinearLayout(context) {
         build()
     }
 
+    /** 当前键盘 id（切方案时用来记住/还原用户原来用的键盘）。 */
+    fun currentKeyboardId(): String = currentId
+
     /** 切键盘（小鹤的 select）。目标不存在时回退到默认键盘。 */
     fun showKeyboard(id: String) {
         val d = KeyboardRepo.load(context, id)

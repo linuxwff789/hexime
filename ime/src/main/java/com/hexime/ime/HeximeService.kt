@@ -88,6 +88,9 @@ class HeximeService : InputMethodService() {
     /** 是否正在组合（决定组合结束时用 finishComposingText 收尾）。 */
     private var composingActive = false
 
+    /** 每个方案上次用的键盘，切方案时还原（不硬塞，避免"切回小鹤键盘变笔画"）。 */
+    private val keyboardPerSchema = HashMap<String, String>()
+
     /** 简体/繁体（小鹤选单的「简繁」键）。 */
     private var simplified = false
 
@@ -461,12 +464,17 @@ class HeximeService : InputMethodService() {
     private fun applySchema(id: String) {
         HeximeSettings.setSchemaId(this, id)
         if (!ready || !engine.hasSession()) return
+        val from = engine.currentSchema()
+        if (from == id) return
         if (!engine.selectSchema(id)) {
             flashStatus("切不了方案：${Schemas.label(id)}")
             return
         }
-        keyboardView?.showKeyboard(if (id == Schemas.OPENFLY_ID) "defaultVJ" else "default")
-        syncAsciiFromKeyboard()
+        // 键盘按方案各记一份，切回来就还原。
+        // **不要**硬塞某个键盘（原来切回音形强制 defaultVJ，键面是 丶丨 这类字根，
+        // 用户看到的就是「切回小鹤键盘变成笔画了」）。
+        keyboardView?.currentKeyboardId()?.let { keyboardPerSchema[from] = it }
+        keyboardPerSchema[id]?.let { keyboardView?.showKeyboard(it) }
         flashStatus("方案：${Schemas.label(id)}")
         updateStatus()
         refresh()
