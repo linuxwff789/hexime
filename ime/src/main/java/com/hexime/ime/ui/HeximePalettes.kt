@@ -1,7 +1,7 @@
 package com.hexime.ime.ui
 
 /**
- * 配色板 —— 由 tools/extract_palettes.py 从 trime2 小鹤主题的 styles/*/main.lua 抽出，
+ * 配色板 —— 由 tools/extract_palettes.py 从 trime2 小鹤主题的 styles/<配色>/main.lua 抽出，
  * 图片键面取该 png 的主色（hexime 没有皮肤系统，只用颜色）。改配色跑一遍脚本即可。
  */
 data class Palette(
