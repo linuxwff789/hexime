@@ -47,6 +47,9 @@ class HeximeService : InputMethodService() {
     /** 编码行上一次的文本：内容没变就不 setText（省一次 measure/layout/draw）。 */
     private var lastCodeText = ""
 
+    /** 顶栏常驻的「加词」按钮（换配色时要跟着改字色）。 */
+    private var addWordView: TextView? = null
+
     private var statusView: TextView? = null
     private var candidateBar: CandidateBar? = null
     private var keyboardView: KeyboardView? = null
@@ -122,7 +125,18 @@ class HeximeService : InputMethodService() {
             }
         }
         statusView = status
+        // 常驻「加词」按钮：不用打字、不用长按任何键，一键开加词窗口
+        val addWord = TextView(this).apply {
+            text = "＋词"
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+            setTextColor(palette.candidateText)
+            setPadding(dp(12), dp(4), dp(12), dp(4))
+            isClickable = true
+            setOnClickListener { showAddWordDialog(clipboardChineseWord().orEmpty()) }
+        }
+        addWordView = addWord
         topBar.addView(code, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        topBar.addView(addWord)
         topBar.addView(
             status,
             LinearLayout.LayoutParams(
@@ -417,6 +431,7 @@ class HeximeService : InputMethodService() {
         keyboardView?.applyTheme(palette, HeximeSettings.keyboardHeightDp(this))
         candidateBar?.applyPalette(palette)
         codeView?.setTextColor(palette.candidateText)
+        addWordView?.setTextColor(palette.candidateText)
         statusView?.setTextColor(palette.candidateComment)
     }
 
@@ -546,12 +561,10 @@ class HeximeService : InputMethodService() {
         bar.text = when {
             !ready -> "部署中…（首次会编译词库）"
             else -> buildString {
-                append(
-                    "${engine.currentSchema()}  ·  ${if (asciiMode) "英" else "中"}" +
-                        "  ·  librime ${engine.version()}",
-                )
+                // 顶栏要留出「＋词」按钮的位置，状态文字保持短
+                append("${engine.currentSchema()} · ${if (asciiMode) "英" else "中"}")
                 if (HeximeSettings.showLatency(this@HeximeService)) {
-                    append("  ·  跟手 %.1f ms".format(latencyMs))
+                    append(" · %.1fms".format(latencyMs))
                 }
             }
         }
