@@ -23,6 +23,7 @@ import com.hexime.ime.data.HeximeSettings
 import com.hexime.ime.data.RimeDataInstaller
 import com.hexime.ime.engine.InputEngine
 import com.hexime.ime.engine.RimeEngine
+import com.hexime.ime.ui.AddWordDialog
 import com.hexime.ime.ui.CandidateBar
 import com.hexime.ime.ui.HeximePalettes
 import com.hexime.ime.ui.KeyAction
@@ -39,6 +40,12 @@ class HeximeService : InputMethodService() {
 
     @Volatile
     private var ready = false
+
+    /** 顶部一行左边：当前编码（组合串）。 */
+    private var codeView: TextView? = null
+
+    /** 编码行上一次的文本：内容没变就不 setText（省一次 measure/layout/draw）。 */
+    private var lastCodeText = ""
 
     private var statusView: TextView? = null
     private var candidateBar: CandidateBar? = null
@@ -65,6 +72,9 @@ class HeximeService : InputMethodService() {
     /** 状态栏临时提示的恢复任务。 */
     private var flashRunnable: Runnable? = null
 
+    /** 加词窗口（键盘上弹出）。 */
+    private var addWordDialog: AddWordDialog? = null
+
     private val vibrator: Vibrator? by lazy {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             getSystemService(VibratorManager::class.java)?.defaultVibrator
@@ -85,11 +95,24 @@ class HeximeService : InputMethodService() {
         val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         val palette = currentPalette()
 
-        statusView = TextView(this).apply {
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
-            setTextColor(palette.candidateText)
+        // 顶部两段：左边「编码」（打字时的组合串，大字号），右边状态（方案/中英/版本/跟手）
+        val topBar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
             setBackgroundColor(palette.candidateBg)
-            setPadding(dp(10), dp(3), dp(10), dp(3))
+        }
+        val code = TextView(this).apply {
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+            setTextColor(palette.candidateText)
+            setPadding(dp(10), dp(4), dp(10), dp(4))
+            maxLines = 1
+        }
+        codeView = code
+        val status = TextView(this).apply {
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
+            setTextColor(palette.candidateComment)
+            setPadding(dp(10), dp(4), dp(10), dp(4))
+            gravity = Gravity.END
             // 点状态栏切换跟手延迟显示
             isClickable = true
             setOnClickListener {
@@ -98,10 +121,18 @@ class HeximeService : InputMethodService() {
                 updateStatus()
             }
         }
+        statusView = status
+        topBar.addView(code, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        topBar.addView(
+            status,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT,
+            ),
+        )
         candidateBar = CandidateBar(this).apply {
             onSelect = { index -> onSelectCandidate(index) }
-            // 长按候选 = 快捷加词（置顶）
-            onLongSelect = { text -> addWordFromCandidate(text) }
+            // 长按候选 = 加词窗口（预填该候选词）
+            onLongSelect = { text -> showAddWordDialog(text) }
         }
         keyboardView = KeyboardView(this).apply {
             onKey = { action -> onKeyAction(action) }
@@ -109,7 +140,7 @@ class HeximeService : InputMethodService() {
             isComposing = { composition.isNotEmpty() }
         }
 
-        root.addView(statusView)
+        root.addView(topBar)
         root.addView(candidateBar)
         root.addView(keyboardView)
         // 记住这次视图用的高度/配色，免得 onStartInputView 又重建一遍
@@ -147,10 +178,14 @@ class HeximeService : InputMethodService() {
 
     override fun onFinishInput() {
         super.onFinishInput()
+        // 注意：**不要**在这里关加词窗口 —— 弹窗里的输入框拿到焦点时，系统会先给原编辑器
+        // 发 onFinishInput，一关就把刚弹出的窗口关掉了。
         engine.clearComposition()
     }
 
     override fun onDestroy() {
+        addWordDialog?.dismiss()
+        addWordDialog = null
         engine.shutdown()
         io.shutdown()
         super.onDestroy()
@@ -368,7 +403,7 @@ class HeximeService : InputMethodService() {
                 applyPalette(next)
                 flashStatus("配色　${next.name}")
             }
-            "addword" -> addWord()
+            "addword" -> showAddWordDialog(clipboardChineseWord().orEmpty())
             // run / web_search / deploy / date：trime2 专属，暂不移植
         }
     }
@@ -377,69 +412,41 @@ class HeximeService : InputMethodService() {
 
     private fun currentPalette(): Palette = HeximePalettes.byId(HeximeSettings.paletteId(this))
 
-    /** 换配色：键盘/候选栏/状态栏一起换，不用重建输入视图。 */
+    /** 换配色：键盘/候选栏/编码行/状态栏一起换，不用重建输入视图。 */
     private fun applyPalette(palette: Palette) {
         keyboardView?.applyTheme(palette, HeximeSettings.keyboardHeightDp(this))
         candidateBar?.applyPalette(palette)
-        statusView?.setBackgroundColor(palette.candidateBg)
-        statusView?.setTextColor(palette.candidateText)
+        codeView?.setTextColor(palette.candidateText)
+        statusView?.setTextColor(palette.candidateComment)
     }
 
     // ---------------------------------------------------------------- 加词
 
     /**
-     * 加词（菜单键）：词从系统剪贴板取（聊天/网页里长按选中的文本），码自动取当前组合区。
+     * 加词窗口：键盘上直接弹出（选单的「加词」键 / 空格上滑 / 长按候选），
+     * 手输或粘贴词 → 自动查小鹤编码 → 确定后写进用户词表并重载引擎。
      *
      * openfly 的 translator 是 enable_user_dict: false —— 引擎不读用户词库，
      * 所以走方案的 custom_phrase(stabledb)：txt 直读，写完重载引擎即生效。
      */
-    private fun addWord() {
-        val word = clipboardChineseWord()
-        if (word == null) {
-            flashStatus("加词：剪贴板里没有中文词")
+    private fun showAddWordDialog(prefill: String = "") {
+        if (!ready) {
+            flashStatus("引擎还在启动，稍后再试")
             return
         }
-        commitAddWord(word)
-    }
-
-    /** 加词（快捷）：长按候选栏里的候选 —— 词就是该候选，码取当前组合区，写进去即置顶。 */
-    private fun addWordFromCandidate(text: String) {
-        val word = text.trim().replace("\t", "").replace("\n", "")
-        if (word.isEmpty() || !word.any { it.code in 0x4E00..0x9FFF }) {
-            flashStatus("加词：这个候选不是中文词")
-            return
+        val dialog = AddWordDialog(this, currentPalette()) { word, code ->
+            if (appendCustomPhrase(word, code)) {
+                flashStatus("已加词　$word → $code（重载中…）")
+                reloadEngine()
+            } else {
+                flashStatus("加词：写 custom_phrase.txt 失败")
+            }
         }
-        if (word.length > MAX_WORD_LENGTH) {
-            flashStatus("加词：词太长（${word.length} 字）")
-            return
+        addWordDialog = dialog
+        runCatching { dialog.show(prefill) }.onFailure {
+            flashStatus("加词窗口打不开：${it.message}（要「显示在其他应用上层」权限）")
+            Log.e(TAG, "showAddWordDialog failed", it)
         }
-        commitAddWord(word)
-    }
-
-    private fun commitAddWord(word: String) {
-        val code = currentCode()
-        if (code == null) return
-        if (!appendCustomPhrase(word, code)) {
-            flashStatus("加词：写 custom_phrase.txt 失败")
-            return
-        }
-        // stabledb 是打开即缓存的，重建会话不够 —— 重启引擎才会重新读 txt
-        flashStatus("已加词　$word → $code（重载中…）")
-        reloadEngine()
-    }
-
-    /** 当前编码：优先组合区，其次最近一次编码（打满 4 码会被 auto_select 上屏）。 */
-    private fun currentCode(): String? {
-        val code = (composition.ifEmpty { lastCode }).replace(" ", "").trim()
-        if (code.isEmpty() || !code.all { it in 'a'..'z' || it == ';' || it == '/' }) {
-            flashStatus("加词：先在键盘上打出编码，再加词")
-            return null
-        }
-        if (code.length > MAX_CODE_LENGTH) {
-            flashStatus("加词：编码最多 $MAX_CODE_LENGTH 位（$code）")
-            return null
-        }
-        return code
     }
 
     /** 重启引擎：让 custom_phrase(stabledb) 重新打开并读到刚写的词条。 */
@@ -490,14 +497,25 @@ class HeximeService : InputMethodService() {
         }
     }
 
-    /** 顶部状态栏临时显示一条提示，2.5 秒后恢复常规状态。 */
+    /** 顶部状态栏临时显示一条提示，2.5 秒后恢复成当前编码。 */
     private fun flashStatus(message: String) {
-        val bar = statusView ?: return
-        bar.text = message
+        val view = codeView ?: return
+        view.text = message
+        lastCodeText = message
         flashRunnable?.let { main.removeCallbacks(it) }
-        val runnable = Runnable { updateStatus() }
+        val runnable = Runnable {
+            lastCodeText = composition
+            codeView?.text = composition
+        }
         flashRunnable = runnable
         main.postDelayed(runnable, FLASH_MS)
+    }
+
+    /** 编码行：内容没变就不 setText。 */
+    private fun setCodeText(text: String) {
+        if (lastCodeText == text) return
+        lastCodeText = text
+        codeView?.text = text
     }
 
     private fun onSelectCandidate(index: Int) {
@@ -513,6 +531,7 @@ class HeximeService : InputMethodService() {
         val snapshot = engine.snapshot()
         composition = snapshot.composition
         if (composition.isNotEmpty()) lastCode = composition
+        setCodeText(composition)
         candidateBar?.setCandidates(snapshot.candidates)
 
         val ic = currentInputConnection ?: return
@@ -560,9 +579,6 @@ class HeximeService : InputMethodService() {
 
     private companion object {
         const val TAG = "HeximeService"
-
-        /** 加词：小鹤音形码最长 4 位（schema 的 speller.max_code_length）。 */
-        const val MAX_CODE_LENGTH = 4
 
         /** 加词：剪贴板词最长多少个字符。 */
         const val MAX_WORD_LENGTH = 16
