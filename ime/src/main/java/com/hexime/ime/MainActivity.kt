@@ -10,16 +10,21 @@ import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
 import android.provider.Settings
+import android.view.View
 import android.view.inputmethod.InputMethodManager
+import android.widget.AdapterView
+import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.SeekBar
+import android.widget.Spinner
 import android.widget.TextView
 import com.hexime.ime.data.HeximeSettings
 import com.hexime.ime.data.RimeDataInstaller
 import com.hexime.ime.engine.RimeEngine
+import com.hexime.ime.ui.HeximePalettes
 import java.util.concurrent.Executors
 
 /** 设置/引导页。 */
@@ -86,12 +91,13 @@ class MainActivity : Activity() {
         })
 
         // ---- 键盘高度 ----
-        root.addView(sectionTitle("\n键盘高度（下次弹出键盘生效）"))
+        root.addView(sectionTitle("\n键盘高度（总高，下次弹出键盘生效）"))
         val heightValue = TextView(this).apply { textSize = 15f }
         root.addView(heightValue)
         fun updateHeightLabel(progress: Int) {
             heightValue.text =
-                "键盘高度：${progress + HeximeSettings.KEYBOARD_HEIGHT_MIN} dp"
+                "键盘高度：${progress + HeximeSettings.KEYBOARD_HEIGHT_MIN} dp" +
+                    "（各键盘页等高）"
         }
         val heightSeek = SeekBar(this).apply {
             max = HeximeSettings.KEYBOARD_HEIGHT_MAX - HeximeSettings.KEYBOARD_HEIGHT_MIN
@@ -112,6 +118,33 @@ class MainActivity : Activity() {
         })
         root.addView(heightSeek)
         updateHeightLabel(heightSeek.progress)
+
+        // ---- 配色 ----
+        root.addView(sectionTitle("\n配色（来自 trime2 小鹤主题，下次弹出键盘生效）"))
+        val palettes = HeximePalettes.ALL
+        val paletteValue = TextView(this).apply { textSize = 14f }
+        root.addView(paletteValue)
+        val paletteSpinner = Spinner(this).apply {
+            adapter = ArrayAdapter(
+                this@MainActivity,
+                android.R.layout.simple_spinner_dropdown_item,
+                palettes.map { it.name },
+            )
+            setSelection(palettes.indexOfFirst { it.id == HeximeSettings.paletteId(this@MainActivity) }
+                .coerceAtLeast(0))
+            onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+                override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                    val p = palettes[position]
+                    HeximeSettings.setPaletteId(this@MainActivity, p.id)
+                    paletteValue.text = "键面 #%06X ／ 底色 #%06X".format(
+                        p.keyFace and 0xFFFFFF, p.keyboardBg and 0xFFFFFF,
+                    )
+                }
+
+                override fun onNothingSelected(parent: AdapterView<*>?) {}
+            }
+        }
+        root.addView(paletteSpinner)
 
         // ---- 跟手延迟显示 ----
         root.addView(CheckBox(this).apply {

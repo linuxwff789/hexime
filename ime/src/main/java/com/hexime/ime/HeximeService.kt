@@ -3,7 +3,6 @@ package com.hexime.ime
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
-import android.graphics.Color
 import android.inputmethodservice.InputMethodService
 import android.os.Build
 import android.os.Handler
@@ -25,8 +24,10 @@ import com.hexime.ime.data.RimeDataInstaller
 import com.hexime.ime.engine.InputEngine
 import com.hexime.ime.engine.RimeEngine
 import com.hexime.ime.ui.CandidateBar
+import com.hexime.ime.ui.HeximePalettes
 import com.hexime.ime.ui.KeyAction
 import com.hexime.ime.ui.KeyboardView
+import com.hexime.ime.ui.Palette
 import java.io.File
 import java.util.concurrent.Executors
 
@@ -82,11 +83,12 @@ class HeximeService : InputMethodService() {
 
     override fun onCreateInputView(): View {
         val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val palette = currentPalette()
 
         statusView = TextView(this).apply {
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
-            setTextColor(Color.parseColor("#607D8B"))
-            setBackgroundColor(Color.parseColor("#ECEFF1"))
+            setTextColor(palette.candidateText)
+            setBackgroundColor(palette.candidateBg)
             setPadding(dp(10), dp(3), dp(10), dp(3))
             // 点状态栏切换跟手延迟显示
             isClickable = true
@@ -108,6 +110,9 @@ class HeximeService : InputMethodService() {
         root.addView(statusView)
         root.addView(candidateBar)
         root.addView(keyboardView)
+        // 记住这次视图用的高度/配色，免得 onStartInputView 又重建一遍
+        appliedKeyHeight = HeximeSettings.keyboardHeightDp(this)
+        appliedPaletteId = HeximeSettings.paletteId(this)
         updateStatus()
         return root
     }
@@ -121,12 +126,17 @@ class HeximeService : InputMethodService() {
     /** 当前已应用的按键高度，用于设置变化时重建键盘。 */
     private var appliedKeyHeight = -1
 
+    /** 当前已应用的配色 id。 */
+    private var appliedPaletteId = ""
+
     override fun onStartInputView(info: EditorInfo?, restarting: Boolean) {
         super.onStartInputView(info, restarting)
-        // 设置里改了键盘高度则重建输入视图
+        // 设置里改了键盘高度/配色则重建输入视图
         val height = HeximeSettings.keyboardHeightDp(this)
-        if (height != appliedKeyHeight) {
+        val paletteId = HeximeSettings.paletteId(this)
+        if (height != appliedKeyHeight || paletteId != appliedPaletteId) {
             appliedKeyHeight = height
+            appliedPaletteId = paletteId
             setInputView(onCreateInputView())
         }
         ensureSession()
@@ -335,18 +345,42 @@ class HeximeService : InputMethodService() {
                 Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
             )
             "kbheight" -> {
+                val step = 16
                 val next = when (option) {
-                    "+" -> HeximeSettings.keyboardHeightDp(this) + 4
-                    "-" -> HeximeSettings.keyboardHeightDp(this) - 4
+                    "+" -> HeximeSettings.keyboardHeightDp(this) + step
+                    "-" -> HeximeSettings.keyboardHeightDp(this) - step
                     else -> HeximeSettings.KEYBOARD_HEIGHT_DEFAULT
                 }
                 HeximeSettings.setKeyboardHeightDp(this, next)
                 appliedKeyHeight = HeximeSettings.keyboardHeightDp(this)
-                setInputView(onCreateInputView())
+                // 就地重建：不重建整个输入视图，键盘页/ascii 状态都保留
+                keyboardView?.applyTheme(currentPalette(), appliedKeyHeight)
+                flashStatus("键盘高度 ${appliedKeyHeight}dp")
+            }
+            "palette" -> {
+                val all = HeximePalettes.ALL
+                val index = all.indexOfFirst { it.id == HeximeSettings.paletteId(this) }
+                val next = all[(index + 1).mod(all.size)]
+                HeximeSettings.setPaletteId(this, next.id)
+                appliedPaletteId = next.id
+                applyPalette(next)
+                flashStatus("配色　${next.name}")
             }
             "addword" -> addWord()
             // run / web_search / deploy / date：trime2 专属，暂不移植
         }
+    }
+
+    // ---------------------------------------------------------------- 配色
+
+    private fun currentPalette(): Palette = HeximePalettes.byId(HeximeSettings.paletteId(this))
+
+    /** 换配色：键盘/候选栏/状态栏一起换，不用重建输入视图。 */
+    private fun applyPalette(palette: Palette) {
+        keyboardView?.applyTheme(palette, HeximeSettings.keyboardHeightDp(this))
+        candidateBar?.applyPalette(palette)
+        statusView?.setBackgroundColor(palette.candidateBg)
+        statusView?.setTextColor(palette.candidateText)
     }
 
     // ---------------------------------------------------------------- 加词

@@ -9,14 +9,20 @@ object HeximeSettings {
     private const val KEY_VIBRATION_PERCENT = "vibration_percent"
     private const val KEY_SHOW_LATENCY = "show_latency"
     private const val KEY_KEYBOARD_HEIGHT = "keyboard_height_dp"
+    private const val KEY_PALETTE = "palette_id"
 
     /** 震动强度百分比 0..100，0 = 关闭。 */
     const val VIBRATION_DEFAULT = 30
 
-    /** 键盘按键高度（dp）。 */
-    const val KEYBOARD_HEIGHT_DEFAULT = 46
-    const val KEYBOARD_HEIGHT_MIN = 34
-    const val KEYBOARD_HEIGHT_MAX = 72
+    /**
+     * 键盘**总高度**（dp）—— 所有键盘页共用（行高 = 总高 × 该行 h%，和小鹤/trime2 一致，
+     * 所以 4 行主键盘和 5 行符号页高度相同）。
+     *
+     * 旧版本这个值表示「单行高度」，读到 <120 的旧值会 ×4 迁移。
+     */
+    const val KEYBOARD_HEIGHT_DEFAULT = 184
+    const val KEYBOARD_HEIGHT_MIN = 120
+    const val KEYBOARD_HEIGHT_MAX = 320
 
     private fun prefs(context: Context) =
         context.getSharedPreferences(PREF, Context.MODE_PRIVATE)
@@ -38,14 +44,27 @@ object HeximeSettings {
         prefs(context).edit().putBoolean(KEY_SHOW_LATENCY, value).apply()
     }
 
-    /** 键盘按键高度（dp）。 */
-    fun keyboardHeightDp(context: Context): Int =
-        prefs(context).getInt(KEY_KEYBOARD_HEIGHT, KEYBOARD_HEIGHT_DEFAULT)
-            .coerceIn(KEYBOARD_HEIGHT_MIN, KEYBOARD_HEIGHT_MAX)
+    /** 键盘总高度（dp）。 */
+    fun keyboardHeightDp(context: Context): Int {
+        val raw = prefs(context).getInt(KEY_KEYBOARD_HEIGHT, KEYBOARD_HEIGHT_DEFAULT)
+        val migrated = if (raw < KEYBOARD_HEIGHT_MIN) raw * 4 else raw // 旧语义：单行高度
+        return migrated.coerceIn(KEYBOARD_HEIGHT_MIN, KEYBOARD_HEIGHT_MAX)
+    }
 
     fun setKeyboardHeightDp(context: Context, value: Int) {
         prefs(context).edit()
             .putInt(KEY_KEYBOARD_HEIGHT, value.coerceIn(KEYBOARD_HEIGHT_MIN, KEYBOARD_HEIGHT_MAX))
             .apply()
     }
+
+    /** 配色 id（见 HeximePalettes）。 */
+    fun paletteId(context: Context): String =
+        prefs(context).getString(KEY_PALETTE, null) ?: PALETTE_DEFAULT
+
+    fun setPaletteId(context: Context, id: String) {
+        prefs(context).edit().putString(KEY_PALETTE, id).apply()
+    }
+
+    /** 默认配色（与 HeximePalettes.DEFAULT_ID 一致，这里写字面量避免 data 层依赖 ui 层）。 */
+    const val PALETTE_DEFAULT = "小鹤"
 }

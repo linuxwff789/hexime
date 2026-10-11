@@ -96,8 +96,10 @@ local function to_action(c)
     if c == "Keyboard_number" then return { k = "kb", v = "number" } end
     if c == "BACK" then return { k = "kb", v = "default" } end
     if c == "SETTINGS" then return { k = "cmd", v = "settings" } end
+    -- 小鹤选单的「配色」键：trime2 里是换配色的广播，hexime 里 = 循环下一个配色
+    if c == "PROG_RED" then return { k = "cmd", v = "palette" } end
     if c == "Eisu_toggle" or c == "Mode_switch" then return { k = "toggle", v = "ascii_mode" } end
-    if c == "Menu" or c == "VOICE_ASSIST" or c == "PROG_RED" or c == "function" then
+    if c == "Menu" or c == "VOICE_ASSIST" or c == "function" then
       return { k = "none" }
     end
     if c == "space1" or c == "Space" then return { k = "key", v = "space" } end

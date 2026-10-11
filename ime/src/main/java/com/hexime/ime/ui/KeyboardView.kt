@@ -1,7 +1,7 @@
 package com.hexime.ime.ui
 
 import android.content.Context
-import android.graphics.Color
+import android.content.res.ColorStateList
 import android.graphics.Rect
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.StateListDrawable
@@ -71,8 +71,11 @@ class KeyboardView(context: Context) : LinearLayout(context) {
     private var currentId = KeyboardRepo.DEFAULT_ID
     private var def: KeyboardDef? = null
 
-    /** 按键高度（像素），来自设置，可在设置页调节。 */
-    private val keyHeightPx: Int =
+    /** 配色（来自 HeximePalettes，可在设置页/选单里换）。 */
+    private var palette: Palette = HeximePalettes.byId(HeximeSettings.paletteId(context))
+
+    /** 键盘**总高度**（像素）：行高 = 总高 × 该行 h%（小鹤/trime2 语义，各页高度一致）。 */
+    private var totalHeightPx: Int =
         (HeximeSettings.keyboardHeightDp(context) * resources.displayMetrics.density).toInt()
 
     private class KeyHolder(
@@ -115,7 +118,7 @@ class KeyboardView(context: Context) : LinearLayout(context) {
 
     init {
         orientation = VERTICAL
-        setBackgroundColor(Color.parseColor("#CFD8DC"))
+        setBackgroundColor(palette.keyboardBg)
         setPadding(dp(4), dp(6), dp(4), dp(6))
         showKeyboard(KeyboardRepo.DEFAULT_ID)
     }
@@ -126,6 +129,19 @@ class KeyboardView(context: Context) : LinearLayout(context) {
 
     /** 当前键盘自带的 ascii_mode（小鹤键盘文件里的字段，切换键盘时同步给引擎）。 */
     fun asciiOn(): Boolean = asciiMode
+
+    fun currentPalette(): Palette = palette
+
+    /**
+     * 换配色 / 改高度：就地重建，**保持当前键盘页和 ascii 状态**
+     * （用 setInputView 重建整个输入视图会把键盘弹回默认页）。
+     */
+    fun applyTheme(palette: Palette, totalHeightDp: Int) {
+        this.palette = palette
+        totalHeightPx = (totalHeightDp * resources.displayMetrics.density).toInt()
+        setBackgroundColor(palette.keyboardBg)
+        build()
+    }
 
     /** 切键盘（小鹤的 select）。目标不存在时回退到默认键盘。 */
     fun showKeyboard(id: String) {
@@ -360,21 +376,19 @@ class KeyboardView(context: Context) : LinearLayout(context) {
         cancelAllLongPress()
         stopRepeat()
         val d = def ?: return
-        val rowCount = d.rows.size.coerceAtLeast(1)
         for (row in d.rows) {
             val rl = LinearLayout(context).apply {
                 orientation = HORIZONTAL
                 setPadding(0, dp(2), 0, dp(2))
             }
-            // trime2 的行高是键盘总高的百分比 → 换算成用户设置的键高
-            val h = (keyHeightPx * row.heightPercent / 100f * rowCount).toInt()
-                .coerceAtLeast(dp(18))
+            // 行高 = 键盘总高 × 该行 h%（小鹤的 h% 每页加起来都是 100，所以各页总高一致）
+            val h = (totalHeightPx * row.heightPercent / 100f).toInt().coerceAtLeast(dp(16))
             for (k in row.keys) {
                 val placeholder = k.label.isEmpty() && k.hint.isEmpty() && k.click == null
                 val tv = TextView(context).apply {
                     text = face(k.label, k.hint, k.style, shift)
                     setTextSize(TypedValue.COMPLEX_UNIT_SP, if (k.hint.isNotEmpty()) 15f else 19f)
-                    setTextColor(Color.parseColor("#212121"))
+                    setTextColor(keyTextColors())
                     gravity = Gravity.CENTER
                     setPadding(0, 0, 0, 0)
                     isClickable = false
@@ -445,9 +459,15 @@ class KeyboardView(context: Context) : LinearLayout(context) {
     }
 
     private fun keyBackground(): StateListDrawable = StateListDrawable().apply {
-        addState(intArrayOf(android.R.attr.state_pressed), ColorDrawable(Color.parseColor("#90A4AE")))
-        addState(intArrayOf(), ColorDrawable(Color.parseColor("#FFFFFF")))
+        addState(intArrayOf(android.R.attr.state_pressed), ColorDrawable(palette.keyPressed))
+        addState(intArrayOf(), ColorDrawable(palette.keyFace))
     }
+
+    /** 键面文字颜色：按下态用配色的 pressed 文字色（小鹤的按下态经常是反色）。 */
+    private fun keyTextColors(): ColorStateList = ColorStateList(
+        arrayOf(intArrayOf(android.R.attr.state_pressed), intArrayOf()),
+        intArrayOf(palette.keyPressedText, palette.keyText),
+    )
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
 

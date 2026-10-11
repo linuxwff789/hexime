@@ -1,15 +1,15 @@
 package com.hexime.ime.ui
 
 import android.content.Context
-import android.graphics.Color
 import android.util.TypedValue
 import android.view.Gravity
 import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import android.widget.TextView
+import com.hexime.ime.data.HeximeSettings
 import com.hexime.ime.engine.Candidate
 
-/** 极简候选栏：一行横向可滚动，点击选词。 */
+/** 极简候选栏：一行横向可滚动，点击选词。配色跟随 HeximePalettes。 */
 class CandidateBar(context: Context) : HorizontalScrollView(context) {
 
     private val row = LinearLayout(context).apply {
@@ -20,13 +20,24 @@ class CandidateBar(context: Context) : HorizontalScrollView(context) {
 
     var onSelect: ((Int) -> Unit)? = null
 
+    private var palette: Palette = HeximePalettes.byId(HeximeSettings.paletteId(context))
+
     init {
         isHorizontalScrollBarEnabled = false
-        setBackgroundColor(Color.parseColor("#ECEFF1"))
+        setBackgroundColor(palette.candidateBg)
         addView(
             row,
             LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.MATCH_PARENT),
         )
+    }
+
+    /** 换配色：底色立刻变，候选文字在下次 setCandidates 时刷新。 */
+    fun applyPalette(palette: Palette) {
+        this.palette = palette
+        setBackgroundColor(palette.candidateBg)
+        for (i in 0 until row.childCount) {
+            (row.getChildAt(i) as? TextView)?.setTextColor(palette.candidateText)
+        }
     }
 
     fun setCandidates(candidates: List<Candidate>) {
@@ -39,7 +50,7 @@ class CandidateBar(context: Context) : HorizontalScrollView(context) {
             val view = TextView(context).apply {
                 text = if (index < 9) "${index + 1} ${candidate.text}" else candidate.text
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 20f)
-                setTextColor(Color.parseColor("#212121"))
+                setTextColor(palette.candidateText)
                 setPadding(dp(14), dp(6), dp(14), dp(6))
                 gravity = Gravity.CENTER
                 isClickable = true
