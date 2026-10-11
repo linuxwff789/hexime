@@ -85,6 +85,9 @@ class HeximeService : InputMethodService() {
     private var shiftOn = false
     private var asciiMode = false
 
+    /** 是否正在组合（决定组合结束时用 finishComposingText 收尾）。 */
+    private var composingActive = false
+
     /** 简体/繁体（小鹤选单的「简繁」键）。 */
     private var simplified = false
 
@@ -682,8 +685,20 @@ class HeximeService : InputMethodService() {
         val ic = currentInputConnection ?: return
         if (!commit.isNullOrEmpty()) {
             ic.commitText(commit, 1)
+            composingActive = false
         }
-        ic.setComposingText(snapshot.composition, 1)
+        // 组合区空了必须用 finishComposingText()，**绝对不能** setComposingText("")：
+        // 编辑器里只要有选区（刚做完「全选」、或用户自己划了一段），
+        // 空的 composing 会把选区整段替换掉 —— 表现就是「上滑 a 全选，结果内容全没了」。
+        if (snapshot.composition.isEmpty()) {
+            if (composingActive) {
+                ic.finishComposingText()
+                composingActive = false
+            }
+        } else {
+            ic.setComposingText(snapshot.composition, 1)
+            composingActive = true
+        }
     }
 
     private fun updateStatus() {
