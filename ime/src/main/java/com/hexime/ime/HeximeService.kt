@@ -59,6 +59,9 @@ class HeximeService : InputMethodService() {
     /** 状态行上一次的文本（没变就不 setText）。 */
     private var lastStatusText = ""
 
+    /** 中/英状态标识（点一下切换）。 */
+    private var modeView: TextView? = null
+
     // ---- 设置缓存：按键热路径上不要反复读 SharedPreferences ----
     private var vibPercent = HeximeSettings.VIBRATION_DEFAULT
     private var latencyOn = false
@@ -127,6 +130,15 @@ class HeximeService : InputMethodService() {
             gravity = Gravity.CENTER_VERTICAL
             setBackgroundColor(palette.candidateBg)
         }
+        // 中/英 状态标识：点一下切换（和空格长按同一个开关）
+        val modeChip = TextView(this).apply {
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+            setPadding(dp(10), dp(4), dp(10), dp(4))
+            gravity = Gravity.CENTER
+            isClickable = true
+            setOnClickListener { toggleAsciiMode() }
+        }
+        modeView = modeChip
         val code = TextView(this).apply {
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
             setTextColor(palette.candidateText)
@@ -170,6 +182,7 @@ class HeximeService : InputMethodService() {
         }
         paletteView = paletteBtn
         topBarView = topBar
+        topBar.addView(modeChip)
         topBar.addView(code, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
         topBar.addView(addWord)
         topBar.addView(paletteBtn)
@@ -197,6 +210,7 @@ class HeximeService : InputMethodService() {
         appliedKeyHeight = HeximeSettings.keyboardHeightDp(this)
         appliedPaletteId = HeximeSettings.paletteId(this)
         refreshSettingsCache()
+        updateModeChip()
         updateStatus()
         return root
     }
@@ -318,6 +332,7 @@ class HeximeService : InputMethodService() {
         if (on == asciiMode) return
         asciiMode = on
         engine.setOption("ascii_mode", on)
+        updateModeChip()
     }
 
     // ---- 具名功能键 / Ctrl / 按键宏 ----
@@ -411,14 +426,28 @@ class HeximeService : InputMethodService() {
         ic.sendKeyEvent(KeyEvent(now, now, KeyEvent.ACTION_UP, keyCode, 0, meta))
     }
 
+    /** 中/英切换：空格长按、选单的中英键、顶栏状态标识都走这里。 */
+    private fun toggleAsciiMode() {
+        asciiMode = !asciiMode
+        engine.setOption("ascii_mode", asciiMode)
+        keyboardView?.setAscii(asciiMode)
+        updateModeChip()
+        updateStatus()
+    }
+
+    /** 顶栏的中/英标识：中文用键面底色，英文用按下色，一眼能看出当前模式。 */
+    private fun updateModeChip() {
+        val v = modeView ?: return
+        val palette = currentPalette()
+        v.text = if (asciiMode) "英" else "中"
+        v.setBackgroundColor(if (asciiMode) palette.keyPressed else palette.keyFace)
+        v.setTextColor(if (asciiMode) palette.keyPressedText else palette.keyText)
+    }
+
     /** Rime 选项开关。 */
     private fun onToggle(option: String) {
         when (option) {
-            "ascii_mode" -> {
-                asciiMode = !asciiMode
-                engine.setOption("ascii_mode", asciiMode)
-                keyboardView?.setAscii(asciiMode)
-            }
+            "ascii_mode" -> toggleAsciiMode()
             "simplification" -> {
                 simplified = !simplified
                 engine.setOption("simplification", simplified)
@@ -461,6 +490,7 @@ class HeximeService : InputMethodService() {
         keyboardView?.applyTheme(palette, HeximeSettings.keyboardHeightDp(this))
         candidateBar?.applyPalette(palette)
         topBarView?.setBackgroundColor(palette.candidateBg)
+        updateModeChip()
         codeView?.setTextColor(palette.candidateText)
         addWordView?.setTextColor(palette.candidateText)
         paletteView?.setTextColor(palette.candidateText)
@@ -612,7 +642,7 @@ class HeximeService : InputMethodService() {
             !ready -> "部署中…（首次会编译词库）"
             else -> buildString {
                 // 顶栏要留出「＋词」「配色」按钮的位置，状态文字保持短
-                append("${engine.currentSchema()} · ${if (asciiMode) "英" else "中"}")
+                append(engine.currentSchema())
                 if (latencyOn) {
                     append(" · %.1fms".format(latencyMs))
                 }

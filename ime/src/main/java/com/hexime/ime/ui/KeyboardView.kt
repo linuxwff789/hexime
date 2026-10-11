@@ -14,6 +14,7 @@ import android.util.SparseArray
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.MotionEvent
+import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
 import com.hexime.ime.data.HeximeSettings
@@ -79,7 +80,9 @@ class KeyboardView(context: Context) : LinearLayout(context) {
         (HeximeSettings.keyboardHeightDp(context) * resources.displayMetrics.density).toInt()
 
     private class KeyHolder(
-        val view: TextView,
+        val view: View,
+        /** 键面主字（容器里可能还有键角的长按字符）。 */
+        val labelView: TextView,
         val k: KeyDef,
         val click: KeyAction,
         val long: KeyAction?,
@@ -164,7 +167,7 @@ class KeyboardView(context: Context) : LinearLayout(context) {
     fun setShift(on: Boolean) {
         if (shift == on) return
         shift = on
-        keys.forEach { it.view.text = face(it.k.label, it.k.hint, it.k.style, shift) }
+        keys.forEach { it.labelView.text = face(it.k.label, it.k.hint, it.k.style, shift) }
     }
 
     /** 键盘高度设置变化后重建（键高是构建期算出来的）。 */
@@ -207,14 +210,20 @@ class KeyboardView(context: Context) : LinearLayout(context) {
         key.downY = y
         activePointers.put(pointerId, key)
         key.view.isPressed = true
-        if (key.hasGesture) {
+        val action = resolveClick(key)
+        if (action is KeyAction.Named && action.name == "BackSpace") {
+            // 删除键：按下就删一次 + 长按连续删 —— 即使这个键还绑了滑动（小鹤的 ⌫ 绑了上滑），
+            // 也要走这条，否则长按只会等松手，删不了。
+            key.firedOnDown = true
+            onKey?.invoke(action)
+            startRepeat { resolveClick(key) }
+            if (key.long != null) scheduleLongPress(pointerId, key)
+        } else if (key.hasGesture) {
             // 有长按/滑动的键：等松手（或长按计时到）再定
             if (key.long != null) scheduleLongPress(pointerId, key)
         } else {
-            val action = resolveClick(key)
             key.firedOnDown = true
             if (action !is KeyAction.None) onKey?.invoke(action)
-            if (action is KeyAction.Named && action.name == "BackSpace") startRepeat { resolveClick(key) }
         }
     }
 
@@ -229,23 +238,6 @@ class KeyboardView(context: Context) : LinearLayout(context) {
 
     private fun handleMove(pointerId: Int, x: Float, y: Float) {
         val current = activePointers.get(pointerId) ?: return
-        if (current.firedOnDown) {
-            // 立即触发的键：沿用「手指滑到别的键就按那个键」
-            val target = keyAt(x, y)
-            if (target == null || target === current) return
-            current.view.isPressed = false
-            stopRepeat()
-            target.firedOnDown = true
-            target.longFired = false
-            target.consumed = false
-            target.downX = x
-            target.downY = y
-            activePointers.put(pointerId, target)
-            target.view.isPressed = true
-            val action = resolveClick(target)
-            if (action !is KeyAction.None) onKey?.invoke(action)
-            return
-        }
         if (current.consumed || current.longFired) return
         val dx = x - current.downX
         val dy = y - current.downY
@@ -256,16 +248,32 @@ class KeyboardView(context: Context) : LinearLayout(context) {
         } else {
             if (dy > 0) DIR_DOWN else DIR_UP
         }
+        // 1) 这个方向有滑动动作 → 触发（按下即触发的键也可能绑了滑动，比如小鹤的 ⌫ 上滑）
         val swipe = current.swipe(dir)
         if (swipe != null) {
             current.consumed = true
             cancelLongPress(pointerId)
+            stopRepeat()
             current.view.isPressed = false
             onKey?.invoke(swipe)
-        } else {
-            // 没有该方向的动作：手指已经划出去了，取消长按
-            cancelLongPress(pointerId)
+            return
         }
+        cancelLongPress(pointerId)
+        // 2) 没有滑动动作：按下即触发的键沿用「手指滑到别的键就按那个键」
+        if (!current.firedOnDown) return
+        val target = keyAt(x, y)
+        if (target == null || target === current) return
+        current.view.isPressed = false
+        stopRepeat()
+        target.firedOnDown = true
+        target.longFired = false
+        target.consumed = false
+        target.downX = x
+        target.downY = y
+        activePointers.put(pointerId, target)
+        target.view.isPressed = true
+        val action = resolveClick(target)
+        if (action !is KeyAction.None) onKey?.invoke(action)
     }
 
     private fun handleUp(pointerId: Int) {
@@ -385,22 +393,33 @@ class KeyboardView(context: Context) : LinearLayout(context) {
             val h = (totalHeightPx * row.heightPercent / 100f).toInt().coerceAtLeast(dp(16))
             for (k in row.keys) {
                 val placeholder = k.label.isEmpty() && k.hint.isEmpty() && k.click == null
-                val tv = TextView(context).apply {
+                val labelView = TextView(context).apply {
                     text = face(k.label, k.hint, k.style, shift)
                     setTextSize(TypedValue.COMPLEX_UNIT_SP, if (k.hint.isNotEmpty()) 15f else 19f)
                     setTextColor(keyTextColors())
                     gravity = Gravity.CENTER
                     setPadding(0, 0, 0, 0)
                     isClickable = false
+                    layoutParams = FrameLayout.LayoutParams(
+                        FrameLayout.LayoutParams.MATCH_PARENT,
+                        FrameLayout.LayoutParams.MATCH_PARENT,
+                    )
+                }
+                val container = FrameLayout(context).apply {
+                    isClickable = false
                     background = if (placeholder) null else keyBackground()
+                    addView(labelView)
+                    // 键角上的长按字符（小鹤键盘绑定的长按内容）
+                    if (!placeholder && k.longLabel.isNotEmpty()) addView(cornerLabel(k.longLabel))
                 }
                 val lp = LayoutParams(0, h, k.width)
                 lp.marginStart = dp(2)
                 lp.marginEnd = dp(2)
-                rl.addView(tv, lp)
+                rl.addView(container, lp)
                 keys.add(
                     KeyHolder(
-                        view = tv,
+                        view = container,
+                        labelView = labelView,
                         k = k,
                         click = toAction(k.click, shift),
                         long = k.long?.let { toAction(it, shift) },
@@ -413,6 +432,23 @@ class KeyboardView(context: Context) : LinearLayout(context) {
                 )
             }
             addView(rl)
+        }
+    }
+
+    /** 键角的长按字符（trime2 也画在键角上，10sp 半透明）。 */
+    private fun cornerLabel(text: String) = TextView(context).apply {
+        this.text = text
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, 10f)
+        setTextColor(keyTextColors())
+        alpha = 0.7f
+        isClickable = false
+        layoutParams = FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.WRAP_CONTENT,
+            FrameLayout.LayoutParams.WRAP_CONTENT,
+        ).apply {
+            gravity = Gravity.TOP or Gravity.END
+            topMargin = dp(1)
+            marginEnd = dp(3)
         }
     }
 

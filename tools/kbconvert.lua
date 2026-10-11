@@ -48,6 +48,17 @@ local function jval(v)
   return "null"
 end
 
+-- UTF-8 字符数（#s 是字节数，中文会数错）
+local function utf8_len(s) return utf8.len(s) or #s end
+
+-- 按 UTF-8 字符截断
+local function utf8_trunc(s, n)
+  local len = utf8.len(s)
+  if len and len <= n then return s end
+  local i = utf8.offset(s, n + 1)
+  return i and s:sub(1, i - 1) or s
+end
+
 ---------------------------------------------------------------- action 归一化
 
 -- trime2 的具名功能键：原样透传给引擎/服务端按 X11 keysym 或专用手势处理
@@ -131,20 +142,21 @@ local function composing_action(v)
   return nil
 end
 
+-- 键面上要显示的长按字符（trime2 会把长按内容画在键角上）
+local function long_label(lc)
+  if lc == nil then return nil end
+  local t = type(lc)
+  if t == "string" or t == "number" then return tostring(lc) end
+  if t ~= "table" then return nil end
+  local a = to_action(lc)
+  if a and (a.k == "sym" or a.k == "text") and utf8_len(a.v) <= 2 then return a.v end
+  if lc.label and utf8_len(lc.label) <= 3 then return lc.label end
+  return nil
+end
+
 ---------------------------------------------------------------- 转换
 
 local function basename(p) return (p:match("([^/]+)$") or p):gsub("%.lua$", "") end
-
--- UTF-8 字符数（#s 是字节数，中文会数错）
-local function utf8_len(s) return utf8.len(s) or #s end
-
--- 按 UTF-8 字符截断
-local function utf8_trunc(s, n)
-  local len = utf8.len(s)
-  if len and len <= n then return s end
-  local i = utf8.offset(s, n + 1)
-  return i and s:sub(1, i - 1) or s
-end
 
 -- 无 label 的具名功能键 → 通用键面文字
 local DEFAULT_LABEL = {
@@ -220,6 +232,8 @@ local function convert(path)
         ascii = to_action(k.ascii),
         -- composing = "delimiterJ/S": 组合中按它 = 选第 2/3 候选(不是覆盖 click)
         composing = k.composing and composing_action(k.composing) or nil,
+        -- 键角上显示的长按字符（trime2 有，hexime 也画出来）
+        longLabel = long_label(k.long_click) or "",
       }
       if k.style then o.style = k.style end
       -- hexime 扩展：空格键上滑 = 加词（小鹤原本空格只绑了左右滑动=移光标）。

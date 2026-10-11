@@ -27,6 +27,8 @@ data class KeyDef(
     val label: String,
     val hint: String,
     val style: String,
+    /** 键角上要显示的长按字符（trime2 也有这个）。 */
+    val longLabel: String = "",
     val click: KbAction? = null,
     val long: KbAction? = null,
     /** 组合中按此键 = 选第 N 候选（trime2 的 composing = delimiterJ/S）。 */
@@ -94,6 +96,7 @@ object KeyboardRepo {
                         label = k.optString("label", ""),
                         hint = k.optString("hint", ""),
                         style = k.optString("style", ""),
+                        longLabel = k.optString("longLabel", ""),
                         click = action(k.optJSONObject("click")),
                         long = action(k.optJSONObject("long")),
                         composing = action(k.optJSONObject("composing")),
