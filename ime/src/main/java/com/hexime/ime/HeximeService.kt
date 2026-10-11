@@ -201,6 +201,10 @@ class HeximeService : InputMethodService() {
             onSelect = { index -> onSelectCandidate(index) }
             // 长按候选 = 加词窗口（预填该候选词）
             onLongSelect = { text -> showAddWordDialog(text) }
+            // 候选栏两端的 △/▽ 翻页（小鹤主题的 Page_Up/Page_Down）
+            onPage = { dir ->
+                onKeyAction(KeyAction.Named(if (dir < 0) "Page_Up" else "Page_Down"))
+            }
         }
         keyboardView = KeyboardView(this).apply {
             onKey = { action -> onKeyAction(action) }
@@ -688,6 +692,7 @@ class HeximeService : InputMethodService() {
         // 配色选择条打开时不要用候选把它盖掉
         if (candidateBar?.inPicker != true) {
             candidateBar?.setCandidates(snapshot.candidates)
+            candidateBar?.setPage(snapshot.pageNo, snapshot.isLastPage)
         }
 
         val ic = currentInputConnection ?: return

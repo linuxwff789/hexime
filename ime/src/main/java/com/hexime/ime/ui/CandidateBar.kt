@@ -9,8 +9,15 @@ import android.widget.TextView
 import com.hexime.ime.data.HeximeSettings
 import com.hexime.ime.engine.Candidate
 
-/** 极简候选栏：一行横向可滚动，点击选词。配色跟随 HeximePalettes。 */
-class CandidateBar(context: Context) : HorizontalScrollView(context) {
+/**
+ * 候选栏：`[△] 一行横向可滚动候选 [▽]`，点击选词，两端是翻页键。
+ *
+ * 翻页键是照小鹤主题来的：`styles/.../main.lua` 里定义了
+ * `Page_Down = {label = "▽", send = "Page_Down"}` / `Page_Up = {label = "△", ...}`，
+ * openfly 的 key_binder 也显式接住了这两个键（本方案没 import default 预设，
+ * 不自己绑的话 `-`/`=` 那套翻页不生效）。候选超过一页时才显示。
+ */
+class CandidateBar(context: Context) : LinearLayout(context) {
 
     private val row = LinearLayout(context).apply {
         orientation = LinearLayout.HORIZONTAL
@@ -18,20 +25,53 @@ class CandidateBar(context: Context) : HorizontalScrollView(context) {
         minimumHeight = dp(46)
     }
 
+    private val scroll = HorizontalScrollView(context).apply {
+        isHorizontalScrollBarEnabled = false
+        addView(
+            row,
+            LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.MATCH_PARENT),
+        )
+    }
+
+    private val prevView = pageButton("△")
+    private val nextView = pageButton("▽")
+
     var onSelect: ((Int) -> Unit)? = null
 
     /** 长按候选：快捷加词（把该候选词写进自定义词表，码取当前组合区）。 */
     var onLongSelect: ((String) -> Unit)? = null
 
+    /** 翻页：-1 上一页（△）、+1 下一页（▽）。 */
+    var onPage: ((Int) -> Unit)? = null
+
     private var palette: Palette = HeximePalettes.byId(HeximeSettings.paletteId(context))
 
     init {
-        isHorizontalScrollBarEnabled = false
+        orientation = HORIZONTAL
+        gravity = Gravity.CENTER_VERTICAL
         setBackgroundColor(palette.candidateBg)
-        addView(
-            row,
-            LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.MATCH_PARENT),
-        )
+        addView(prevView, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.MATCH_PARENT))
+        addView(scroll, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
+        addView(nextView, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.MATCH_PARENT))
+        setPage(0, true)
+    }
+
+    private fun pageButton(label: String) = TextView(context).apply {
+        text = label
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, 17f)
+        setTextColor(palette.candidateText)
+        setPadding(dp(10), 0, dp(10), 0)
+        gravity = Gravity.CENTER
+        isClickable = true
+        setOnClickListener {
+            onPage?.invoke(if (label == "△") -1 else 1)
+        }
+    }
+
+    /** 只有多于一页时才显示对应的箭头（第一页不显示 △，末页不显示 ▽）。 */
+    fun setPage(pageNo: Int, isLastPage: Boolean) {
+        prevView.visibility = if (pageNo > 0) VISIBLE else GONE
+        nextView.visibility = if (isLastPage) GONE else VISIBLE
     }
 
     /** 换配色：底色立刻变，候选文字在下次 setCandidates 时刷新。 */
@@ -39,6 +79,8 @@ class CandidateBar(context: Context) : HorizontalScrollView(context) {
         this.palette = palette
         setBackgroundColor(palette.candidateBg)
         itemPool.forEach { it.setTextColor(palette.candidateText) }
+        prevView.setTextColor(palette.candidateText)
+        nextView.setTextColor(palette.candidateText)
         lastCandidates = emptyList() // 强制下次 setCandidates 重刷（颜色变了）
     }
 
@@ -57,8 +99,10 @@ class CandidateBar(context: Context) : HorizontalScrollView(context) {
     fun showPalettePicker(onPick: (Int) -> Unit) {
         pickerCallback = onPick
         clearPickerViews()
-        // 候选先让位（它们和配色项共用同一个 row）
+        // 候选先让位（它们和配色项共用同一个 row），翻页键也收起来
         itemPool.forEach { it.visibility = GONE }
+        prevView.visibility = GONE
+        nextView.visibility = GONE
         HeximePalettes.ALL.forEachIndexed { index, p ->
             val item = TextView(context).apply {
                 text = p.name
@@ -73,7 +117,7 @@ class CandidateBar(context: Context) : HorizontalScrollView(context) {
             pickerViews.add(item)
             row.addView(item)
         }
-        scrollTo(0, 0)
+        scroll.scrollTo(0, 0)
     }
 
     fun clearPicker() {
@@ -127,12 +171,13 @@ class CandidateBar(context: Context) : HorizontalScrollView(context) {
                 true
             }
         }
-        scrollTo(0, 0)
+        scroll.scrollTo(0, 0)
     }
 
     fun clear() {
         lastCandidates = emptyList()
         itemPool.forEach { it.visibility = GONE }
+        setPage(0, true)
     }
 
     private fun dp(value: Int): Int =
