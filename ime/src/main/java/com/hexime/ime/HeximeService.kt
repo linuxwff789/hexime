@@ -63,6 +63,10 @@ class HeximeService : InputMethodService() {
     private var vibPercent = HeximeSettings.VIBRATION_DEFAULT
     private var latencyOn = false
 
+    /** 震动波形：按键时不再每键 new 一个 VibrationEffect（强度变了才重建）。 */
+    private var vibEffect: VibrationEffect? = null
+    private var vibEffectPercent = -1
+
     /** 重新读一遍热路径用到的设置（建视图、从设置页回来时调用）。 */
     private fun refreshSettingsCache() {
         vibPercent = HeximeSettings.vibrationPercent(this)
@@ -625,8 +629,14 @@ class HeximeService : InputMethodService() {
         if (percent <= 0) return
         val v = vibrator ?: return
         if (!v.hasVibrator()) return
-        val amplitude = (percent / 100.0 * 255).toInt().coerceIn(1, 255)
-        runCatching { v.vibrate(VibrationEffect.createOneShot(12L, amplitude)) }
+        var effect = vibEffect
+        if (effect == null || vibEffectPercent != percent) {
+            val amplitude = (percent / 100.0 * 255).toInt().coerceIn(1, 255)
+            effect = VibrationEffect.createOneShot(12L, amplitude)
+            vibEffect = effect
+            vibEffectPercent = percent
+        }
+        runCatching { v.vibrate(effect) }
     }
 
     /** 记录「按键 -> 下一帧渲染」的耗时，作为跟手性的量化指标。 */
