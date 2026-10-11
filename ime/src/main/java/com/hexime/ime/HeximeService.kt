@@ -100,6 +100,8 @@ class HeximeService : InputMethodService() {
         }
         candidateBar = CandidateBar(this).apply {
             onSelect = { index -> onSelectCandidate(index) }
+            // 长按候选 = 快捷加词（置顶）
+            onLongSelect = { text -> addWordFromCandidate(text) }
         }
         keyboardView = KeyboardView(this).apply {
             onKey = { action -> onKeyAction(action) }
@@ -386,11 +388,10 @@ class HeximeService : InputMethodService() {
     // ---------------------------------------------------------------- 加词
 
     /**
-     * 加词：词从系统剪贴板取（聊天/网页里长按选中的文本），码自动取当前组合区
-     * （打满 4 码被 auto_select 上屏时用最近一次编码），追加到 user/custom_phrase.txt。
+     * 加词（菜单键）：词从系统剪贴板取（聊天/网页里长按选中的文本），码自动取当前组合区。
      *
      * openfly 的 translator 是 enable_user_dict: false —— 引擎不读用户词库，
-     * 所以走方案的 custom_phrase(stabledb)：txt 直读，写完重建会话即生效。
+     * 所以走方案的 custom_phrase(stabledb)：txt 直读，写完重载引擎即生效。
      */
     private fun addWord() {
         val word = clipboardChineseWord()
@@ -398,24 +399,68 @@ class HeximeService : InputMethodService() {
             flashStatus("加词：剪贴板里没有中文词")
             return
         }
-        val code = (composition.ifEmpty { lastCode }).replace(" ", "").trim()
-        if (code.isEmpty() || !code.all { it in 'a'..'z' || it == ';' || it == '/' }) {
-            flashStatus("加词：先在键盘上打出编码，再按加词")
+        commitAddWord(word)
+    }
+
+    /** 加词（快捷）：长按候选栏里的候选 —— 词就是该候选，码取当前组合区，写进去即置顶。 */
+    private fun addWordFromCandidate(text: String) {
+        val word = text.trim().replace("\t", "").replace("\n", "")
+        if (word.isEmpty() || !word.any { it.code in 0x4E00..0x9FFF }) {
+            flashStatus("加词：这个候选不是中文词")
             return
         }
-        if (code.length > MAX_CODE_LENGTH) {
-            flashStatus("加词：编码最多 $MAX_CODE_LENGTH 位（$code）")
+        if (word.length > MAX_WORD_LENGTH) {
+            flashStatus("加词：词太长（${word.length} 字）")
             return
         }
+        commitAddWord(word)
+    }
+
+    private fun commitAddWord(word: String) {
+        val code = currentCode()
+        if (code == null) return
         if (!appendCustomPhrase(word, code)) {
             flashStatus("加词：写 custom_phrase.txt 失败")
             return
         }
-        // 重建会话 → translator 重新打开 stabledb，新词立即能打出来
-        engine.destroySession()
-        ensureSession()
-        refresh()
-        flashStatus("已加词　$word → $code")
+        // stabledb 是打开即缓存的，重建会话不够 —— 重启引擎才会重新读 txt
+        flashStatus("已加词　$word → $code（重载中…）")
+        reloadEngine()
+    }
+
+    /** 当前编码：优先组合区，其次最近一次编码（打满 4 码会被 auto_select 上屏）。 */
+    private fun currentCode(): String? {
+        val code = (composition.ifEmpty { lastCode }).replace(" ", "").trim()
+        if (code.isEmpty() || !code.all { it in 'a'..'z' || it == ';' || it == '/' }) {
+            flashStatus("加词：先在键盘上打出编码，再加词")
+            return null
+        }
+        if (code.length > MAX_CODE_LENGTH) {
+            flashStatus("加词：编码最多 $MAX_CODE_LENGTH 位（$code）")
+            return null
+        }
+        return code
+    }
+
+    /** 重启引擎：让 custom_phrase(stabledb) 重新打开并读到刚写的词条。 */
+    private fun reloadEngine() {
+        ready = false
+        updateStatus()
+        io.execute {
+            engine.shutdown()
+            val shared = RimeDataInstaller.ensureInstalled(this)
+            val user = RimeDataInstaller.userDir(this).apply { mkdirs() }
+            val log = RimeDataInstaller.logDir(this).apply { mkdirs() }
+            val ok = engine.initialize(shared.absolutePath, user.absolutePath, log.absolutePath)
+            if (ok) engine.deploy(false)
+            ready = ok
+            Log.i(TAG, "engine reloaded -> $ok")
+            main.post {
+                updateStatus()
+                ensureSession()
+                refresh()
+            }
+        }
     }
 
     /** 剪贴板里的中文词（没有汉字 / 太长都不算）。 */

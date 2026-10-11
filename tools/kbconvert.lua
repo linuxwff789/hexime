@@ -222,6 +222,11 @@ local function convert(path)
         composing = k.composing and composing_action(k.composing) or nil,
       }
       if k.style then o.style = k.style end
+      -- hexime 扩展：空格键上滑 = 加词（小鹤原本空格只绑了左右滑动=移光标）。
+      -- 词取剪贴板、码取组合区；没有中文词/没编码时只提示，不写库。
+      if o.style == "space" and o.up == nil then
+        o.up = { k = "cmd", v = "addword" }
+      end
       out.keys[#out.keys + 1] = o
     end
     out.sum = math.floor(sum * 100 + 0.5) / 100

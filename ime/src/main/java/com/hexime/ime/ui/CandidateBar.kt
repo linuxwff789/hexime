@@ -20,6 +20,9 @@ class CandidateBar(context: Context) : HorizontalScrollView(context) {
 
     var onSelect: ((Int) -> Unit)? = null
 
+    /** 长按候选：快捷加词（把该候选词写进自定义词表，码取当前组合区）。 */
+    var onLongSelect: ((String) -> Unit)? = null
+
     private var palette: Palette = HeximePalettes.byId(HeximeSettings.paletteId(context))
 
     init {
@@ -55,6 +58,12 @@ class CandidateBar(context: Context) : HorizontalScrollView(context) {
                 gravity = Gravity.CENTER
                 isClickable = true
                 setOnClickListener { onSelect?.invoke(index) }
+                // 长按 = 快捷加词（这个候选词 + 当前组合区的码，写进 custom_phrase 后置顶）
+                isLongClickable = true
+                setOnLongClickListener {
+                    onLongSelect?.invoke(candidate.text)
+                    true
+                }
             }
             row.addView(view)
         }
