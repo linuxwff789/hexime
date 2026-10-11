@@ -59,17 +59,19 @@ if [ "$RESTORE" = 1 ]; then
   fix_owner() {
     local p="$1"
     [ -e "$p" ] || return 0
-    su -c "chown -R $APP_UID:$APP_UID '$p' && chcon -R '$APP_CTX' '$p'" || true
+    # 不吞错误：恢复出 app 读不到的文件比直接失败更糟
+    su -c "chown -R $APP_UID:$APP_UID '$p' && chcon -R '$APP_CTX' '$p'" \
+      || fail "修属主/标签失败: $p"
   }
 
-  # 目标目录可能还不存在（刚装完、app 还没写过 prefs）；建完照样修属主/标签。
+  # 目标目录可能还不存在（刚装完、app 还没写过 prefs）。
+  # 注意：mkdir -p 是 root 建的，中间层（files/rime）也会是 root:root，
+  # 所以属主/标签统一放到最后整棵树修（见下面 fix_owner 调用）。
   ensure_dir() {
     local d="$1"
-    if [ ! -d "$d" ]; then
-      su -c "mkdir -p '$d'" || fail "建目录失败: $d"
-      log "新建目录 $d"
-    fi
-    fix_owner "$d"
+    [ -d "$d" ] && return 0
+    su -c "mkdir -p '$d'" || fail "建目录失败: $d"
+    log "新建目录 $d"
   }
 
   # cat > 保留原 inode/属主（已存在时）；新建的文件要补属主 + 标签。
@@ -78,13 +80,8 @@ if [ "$RESTORE" = 1 ]; then
     dir="$(dirname "$dst")"
     ensure_dir "$dir"
     su -c "cat > '$dst'" < "$src" || fail "写 $dst 失败"
-    fix_owner "$dst"
     log "已恢复 $(basename "$dst")（$(wc -c < "$src" | tr -d ' ') 字节，属主 $APP_UID）"
   }
-
-  # 先修整棵树的属主（重装换 uid 后旧目录属于上一个 uid）
-  fix_owner "$APP/files"
-  fix_owner "$APP/shared_prefs"
 
   if [ -f "$WORK/custom_phrase.txt" ]; then
     restore_file "$WORK/custom_phrase.txt" "$APP/files/rime/user/custom_phrase.txt"
@@ -93,6 +90,14 @@ if [ "$RESTORE" = 1 ]; then
   if [ -f "$WORK/hexime_settings.xml" ]; then
     restore_file "$WORK/hexime_settings.xml" "$APP/shared_prefs/hexime_settings.xml"
   fi
+  # 最后统一把整棵树修成当前 app 的属主/标签：
+  #  * 重装后 uid 会变（10389 → 10391 …），旧目录还属于上一个 uid；
+  #  * mkdir -p 建的中间层目录是 root:root。
+  # 不修的话 app 建不了 files/rime/shared → 引擎初始化失败（甚至后台线程抛异常闪退）。
+  log "修属主/标签（uid $APP_UID）"
+  fix_owner "$APP/files"
+  fix_owner "$APP/shared_prefs"
+
   log "恢复完成 —— 打开输入法会重新部署词库"
   exit 0
 fi
