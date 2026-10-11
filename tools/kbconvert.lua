@@ -133,6 +133,27 @@ end
 
 local function basename(p) return (p:match("([^/]+)$") or p):gsub("%.lua$", "") end
 
+-- UTF-8 字符数（#s 是字节数，中文会数错）
+local function utf8_len(s) return utf8.len(s) or #s end
+
+-- 按 UTF-8 字符截断
+local function utf8_trunc(s, n)
+  local len = utf8.len(s)
+  if len and len <= n then return s end
+  local i = utf8.offset(s, n + 1)
+  return i and s:sub(1, i - 1) or s
+end
+
+-- 无 label 的具名功能键 → 通用键面文字
+local DEFAULT_LABEL = {
+  BackSpace = "⌫", Return = "↵", space = "空格", Shift_L = "⇧", Shift_R = "⇧",
+  Tab = "Tab", Delete = "Del", Escape = "Esc",
+  Up = "↑", Down = "↓", Left = "←", Right = "→",
+  copy = "复制", paste = "粘贴", cut = "剪切", undo = "撤销", redo = "重做", select_all = "全选",
+  Keyboard_default = "返回", Keyboard_symbols = "符号", Keyboard_symbols_ext = "符号",
+  Keyboard_number = "数字", Keyboard_letter = "abc",
+}
+
 local function convert(path)
   local env = {}
   local chunk, lerr = loadfile(path, "t", env)
@@ -161,8 +182,24 @@ local function convert(path)
     for _, k in ipairs(keys) do
       local w = k.width or env.key_width or (100 / nk)
       sum = sum + w
+      local act = to_action(k.click)
       local label = k.label
       local hint = k.hint or ""
+      local clickTable = type(k.click) == "table" and k.click or nil
+      -- 小鹤(老 trime)把键面文字写在 click 表里: {click = {label = "返回", select = ...}}
+      if label == nil and clickTable then label = clickTable.label end
+      -- 还是没键面就按功能键名 / 字符给个通用键面（ascii.lua 这类无 label 的键盘）
+      if label == nil and clickTable then label = DEFAULT_LABEL[clickTable.send] end
+      if label == nil then label = DEFAULT_LABEL[k.click] end
+      if label == nil and act and act.k == "sym" then label = act.v end
+      if label == nil and act and act.k == "key" then label = DEFAULT_LABEL[act.v] end
+      if label == nil and act and act.k == "toggle" and act.v == "ascii_mode" then label = "中英" end
+      -- 符号/颜文字页：键面取它上屏的文本（截断到 4 个字，别把键撑爆）
+      if label == nil and act and act.k == "text" then
+        local plain = act.v:match("^([^{]*)") or ""
+        if plain == "" then plain = act.v end
+        label = utf8_trunc(plain, 4)
+      end
       -- trime2 的图标键面(ic_xxx)在 hexime 里没有图，退化成中文小字当键面
       if label and label:match("^ic_") then
         label = (hint ~= "" and hint) or ""
@@ -172,7 +209,7 @@ local function convert(path)
         w = w,
         label = label or "",
         hint = hint,
-        click = to_action(k.click),
+        click = act,
         long = to_action(k.long_click),
         up = to_action(k.swipe_up),
         down = to_action(k.swipe_down),
