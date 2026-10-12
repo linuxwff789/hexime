@@ -22,6 +22,7 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import com.hexime.ime.data.HeximeSettings
 import com.hexime.ime.data.RimeDataInstaller
+import com.hexime.ime.data.GithubSync
 import com.hexime.ime.data.Schemas
 import com.hexime.ime.data.SyncPrefs
 import com.hexime.ime.engine.InputEngine
@@ -608,6 +609,7 @@ class HeximeService : InputMethodService() {
             if (appendCustomPhrase(word, code)) {
                 flashStatus("已加词　$word → $code（重载中…）")
                 reloadEngine()
+                syncUpAfterAddWord()
             } else {
                 flashStatus("加词：写 custom_phrase.txt 失败")
             }
@@ -616,6 +618,20 @@ class HeximeService : InputMethodService() {
         runCatching { dialog.show(prefill) }.onFailure {
             flashStatus("加词窗口打不开：${it.message}（要「显示在其他应用上层」权限）")
             Log.e(TAG, "showAddWordDialog failed", it)
+        }
+    }
+
+    /** 加完词自动推一次（没配 token 就静默跳过；失败才提示）。 */
+    private fun syncUpAfterAddWord() {
+        if (SyncPrefs.token(this).isBlank()) return
+        io.execute {
+            val result = runCatching { GithubSync.upload(this) }
+                .getOrElse { GithubSync.Result(false, "异常：${it.message}") }
+            if (result.ok) {
+                Log.i(TAG, "auto sync after addword: ${result.message}")
+            } else {
+                main.post { flashStatus("同步失败：${result.message}") }
+            }
         }
     }
 

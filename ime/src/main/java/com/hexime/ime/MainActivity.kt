@@ -54,6 +54,11 @@ class MainActivity : Activity() {
     private lateinit var vibValue: TextView
     private lateinit var heightValue: TextView
     private lateinit var syncStatus: TextView
+    private lateinit var schemaSpinner: Spinner
+    private lateinit var paletteSpinner: Spinner
+    private lateinit var heightSeek: SeekBar
+    private lateinit var vibSeek: SeekBar
+    private lateinit var latencySwitch: Switch
     private val io = Executors.newSingleThreadExecutor()
     private val main = Handler(Looper.getMainLooper())
 
@@ -111,7 +116,7 @@ class MainActivity : Activity() {
         root.addView(card("外观") { box ->
             box.addView(sectionLabel("方案（也可以点选单里的「方案」键循环切）"))
             val schemaIds = Schemas.ALL
-            box.addView(Spinner(this).apply {
+            schemaSpinner = Spinner(this).apply {
                 adapter = ArrayAdapter(
                     this@MainActivity,
                     android.R.layout.simple_spinner_dropdown_item,
@@ -130,11 +135,12 @@ class MainActivity : Activity() {
 
                     override fun onNothingSelected(parent: AdapterView<*>?) {}
                 }
-            })
+            }
+            box.addView(schemaSpinner)
 
             box.addView(sectionLabel("配色（来自 trime2 小鹤主题，换完下次弹键盘生效）"))
             val palettes = HeximePalettes.ALL
-            box.addView(Spinner(this).apply {
+            paletteSpinner = Spinner(this).apply {
                 adapter = ArrayAdapter(
                     this@MainActivity,
                     android.R.layout.simple_spinner_dropdown_item,
@@ -153,7 +159,8 @@ class MainActivity : Activity() {
 
                     override fun onNothingSelected(parent: AdapterView<*>?) {}
                 }
-            })
+            }
+            box.addView(paletteSpinner)
 
             box.addView(sectionLabel("键盘高度（总高，各键盘页等高）"))
             heightValue = TextView(this).apply {
@@ -161,7 +168,7 @@ class MainActivity : Activity() {
                 setTextColor(c.onSurfaceVariant)
             }
             box.addView(heightValue)
-            val heightSeek = SeekBar(this).apply {
+            heightSeek = SeekBar(this).apply {
                 max = HeximeSettings.KEYBOARD_HEIGHT_MAX - HeximeSettings.KEYBOARD_HEIGHT_MIN
                 progress = HeximeSettings.keyboardHeightDp(this@MainActivity) -
                     HeximeSettings.KEYBOARD_HEIGHT_MIN
@@ -188,29 +195,32 @@ class MainActivity : Activity() {
                 setTextColor(c.onSurfaceVariant)
             }
             box.addView(vibValue)
-            val seek = SeekBar(this).apply {
+            vibSeek = SeekBar(this).apply {
                 max = 100
                 progress = HeximeSettings.vibrationPercent(this@MainActivity)
                 tint(c.accent)
             }
-            seek.setOnSeekBarChangeListener(object : SimpleSeek() {
+            vibSeek.setOnSeekBarChangeListener(object : SimpleSeek() {
                 override fun onProgressChanged(sb: SeekBar?, value: Int, fromUser: Boolean) {
                     HeximeSettings.setVibrationPercent(this@MainActivity, value)
                     updateVibLabel(value)
                     if (fromUser) previewVibration(value)
                 }
             })
-            box.addView(seek)
-            updateVibLabel(seek.progress)
+            box.addView(vibSeek)
+            updateVibLabel(vibSeek.progress)
             box.addView(textButton("试一下震动") {
                 previewVibration(HeximeSettings.vibrationPercent(this@MainActivity))
             })
 
+            latencySwitch = Switch(this).apply {
+                isChecked = HeximeSettings.showLatency(this@MainActivity)
+            }
             box.addView(
                 switchRow(
                     "显示「跟手延迟」",
                     "按键到下一帧的耗时，调优指标；默认关（开着每键多一次 Choreographer 回调）",
-                    HeximeSettings.showLatency(this@MainActivity),
+                    latencySwitch,
                 ) { checked -> HeximeSettings.setShowLatency(this@MainActivity, checked) },
             )
         })
@@ -219,7 +229,8 @@ class MainActivity : Activity() {
         root.addView(card("同步（GitHub）") { box ->
             box.addView(
                 sectionLabel(
-                    "把自定义词表 + 设置推到私有仓库（和 Termux 那个备份脚本同一份文件、同一路径）",
+                    "自定义词表 + 设置 ↔ 私有仓库（和 Termux 那个备份脚本同一份文件、同一路径）。" +
+                        "加词后会自动上传；打开这一页会自动下载一次；也可以手动点下面两个按钮。",
                 ),
             )
             syncStatus = TextView(this).apply {
@@ -292,6 +303,37 @@ class MainActivity : Activity() {
         setContentView(scroll)
         scroll.requestFocus()
         refreshStatus()
+        autoPullOnOpen()
+    }
+
+    /**
+     * 打开设置页时自动拉一次（只拉不推）。拉完把控件刷成新值。
+     * 没配 token 就静默跳过 —— 没打算同步的人不该看到任何网络行为。
+     */
+    private fun autoPullOnOpen() {
+        if (SyncPrefs.token(this).isBlank()) return
+        io.execute {
+            val result = runCatching { GithubSync.download(this) }
+                .getOrElse { GithubSync.Result(false, "异常：${it.message}") }
+            main.post {
+                SyncPrefs.setLastSync(this, "${if (result.ok) "自动拉取" else "自动拉取失败"}：${result.message}")
+                syncStatus.text = result.message
+                if (result.ok) reloadControlsFromSettings()
+            }
+        }
+    }
+
+    /** 把各控件刷成当前设置值（拉取同步后用；监听器写回的是同一个值，不会打架）。 */
+    private fun reloadControlsFromSettings() {
+        schemaSpinner.setSelection(
+            Schemas.ALL.indexOfFirst { it.first == HeximeSettings.schemaId(this) }.coerceAtLeast(0),
+        )
+        paletteSpinner.setSelection(
+            HeximePalettes.ALL.indexOfFirst { it.id == HeximeSettings.paletteId(this) }.coerceAtLeast(0),
+        )
+        heightSeek.progress = HeximeSettings.keyboardHeightDp(this) - HeximeSettings.KEYBOARD_HEIGHT_MIN
+        vibSeek.progress = HeximeSettings.vibrationPercent(this)
+        latencySwitch.isChecked = HeximeSettings.showLatency(this)
     }
 
     // ------------------------------------------------------------ 组件
@@ -355,10 +397,11 @@ class MainActivity : Activity() {
     }
 
     /** 标题 + 副标题 + 右侧开关的一行。 */
+    /** 开关行的开关由调用方建好传进来（这样设置页拉取后能直接改它的状态）。 */
     private fun switchRow(
         title: String,
         subtitle: String,
-        checked: Boolean,
+        switchView: Switch,
         onChange: (Boolean) -> Unit,
     ) = LinearLayout(this).apply {
         orientation = LinearLayout.HORIZONTAL
@@ -376,18 +419,16 @@ class MainActivity : Activity() {
             setTextColor(c.onSurfaceVariant)
         })
         addView(texts, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        addView(Switch(this@MainActivity).apply {
-            isChecked = checked
-            thumbTintList = ColorStateList(
-                arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()),
-                intArrayOf(c.accent, c.outline),
-            )
-            trackTintList = ColorStateList(
-                arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()),
-                intArrayOf(withAlpha(c.accent, 0.5f), withAlpha(c.outline, 0.4f)),
-            )
-            setOnCheckedChangeListener { _, value -> onChange(value) }
-        })
+        switchView.thumbTintList = ColorStateList(
+            arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()),
+            intArrayOf(c.accent, c.outline),
+        )
+        switchView.trackTintList = ColorStateList(
+            arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()),
+            intArrayOf(withAlpha(c.accent, 0.5f), withAlpha(c.outline, 0.4f)),
+        )
+        switchView.setOnCheckedChangeListener { _, value -> onChange(value) }
+        addView(switchView)
     }
 
     private abstract class SimpleSeek : SeekBar.OnSeekBarChangeListener {
