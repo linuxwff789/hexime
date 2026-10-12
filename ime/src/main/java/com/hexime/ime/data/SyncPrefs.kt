@@ -15,6 +15,7 @@ object SyncPrefs {
     private const val KEY_REPO = "repo"
     private const val KEY_LAST = "last_sync"
     private const val KEY_RELOAD = "phrase_reload_needed"
+    private const val KEY_PULLED = "first_pull_done"
 
     /** 默认仓库：owner/name（和 Termux 那个备份脚本同一个）。 */
     const val DEFAULT_REPO = "linuxwff789/hexime-backup"
@@ -40,6 +41,17 @@ object SyncPrefs {
 
     fun setLastSync(context: Context, value: String) {
         prefs(context).edit().putString(KEY_LAST, value).apply()
+    }
+
+    /**
+     * 是否至少成功拉取过一次。
+     * **没拉过就不许自动推** —— 刚装好的机器上设置几乎都是默认值，
+     * 这时候推上去会把云端的真实设置/词表冲掉（用户改了配色再填 token 就会踩到）。
+     */
+    fun firstPullDone(context: Context): Boolean = prefs(context).getBoolean(KEY_PULLED, false)
+
+    fun markFirstPullDone(context: Context) {
+        prefs(context).edit().putBoolean(KEY_PULLED, true).apply()
     }
 
     /** 拉取过词表 → 让输入法下次弹键盘时重启引擎把新词读进来。 */

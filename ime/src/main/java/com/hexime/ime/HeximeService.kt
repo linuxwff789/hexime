@@ -624,6 +624,8 @@ class HeximeService : InputMethodService() {
     /** 加完词自动推一次（没配 token 就静默跳过；失败才提示）。 */
     private fun syncUpAfterAddWord() {
         if (SyncPrefs.token(this).isBlank()) return
+        // 还没成功拉过一次就别自动推（新装机器上的本地设置几乎是默认值，推上去会冲掉云端）
+        if (!SyncPrefs.firstPullDone(this)) return
         io.execute {
             val result = runCatching { GithubSync.upload(this) }
                 .getOrElse { GithubSync.Result(false, "异常：${it.message}") }

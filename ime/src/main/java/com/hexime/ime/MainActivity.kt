@@ -81,7 +81,7 @@ class MainActivity : Activity() {
     override fun onStop() {
         super.onStop()
         // 离开设置页时把本机改动推上去：不然下次「打开自动拉」会把刚改的配色/高度冲回旧值
-        if (settingsDirty && SyncPrefs.token(this).isNotBlank()) {
+        if (settingsDirty && SyncPrefs.token(this).isNotBlank() && SyncPrefs.firstPullDone(this)) {
             settingsDirty = false
             io.execute {
                 val r = runCatching { GithubSync.upload(this) }
@@ -297,6 +297,13 @@ class MainActivity : Activity() {
                 SyncPrefs.setToken(this@MainActivity, tokenView.text.toString())
                 SyncPrefs.setRepo(this@MainActivity, repoView.text.toString())
             }
+            box.addView(
+                sectionLabel(
+                    "规则：词表取并集（两边加的词都不丢）；设置是后写覆盖。" +
+                        "没成功拉取过一次之前，自动上传会跳过（免得新装的默认值冲掉云端）；" +
+                        "手动「上传」不受这个限制。",
+                ),
+            )
             box.addView(filledButton("上传（本机 → GitHub）") {
                 saveCreds()
                 runSync(upload = true)

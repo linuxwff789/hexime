@@ -23,6 +23,8 @@ object GithubSync {
     private const val TAG = "HeximeSync"
     private const val API = "https://api.github.com"
     private const val BRANCH = "main"
+    private const val PHRASE = "custom_phrase.txt"
+    private const val SETTINGS = "hexime_settings.xml"
 
     /** 同步结果（给 UI 显示）。 */
     data class Result(val ok: Boolean, val message: String)
@@ -30,6 +32,16 @@ object GithubSync {
     /** 上传：本地 → GitHub。 */
     fun upload(context: Context): Result {
         val (repo, token) = creds(context) ?: return Result(false, "还没填 token")
+        // 词表先和远端做并集再推：词表是只增的数据，整份覆盖会把云端已有的词冲掉
+        val phraseFile = File(RimeDataInstaller.userDir(context), "custom_phrase.txt")
+        if (phraseFile.isFile) {
+            val remote = remoteFileOrNull(repo, token, PHRASE)
+            val merged = mergePhrases(
+                phraseFile.readText(),
+                remote?.toString(Charsets.UTF_8),
+            )
+            phraseFile.writeText(merged)
+        }
         val files = localFiles(context)
         return try {
             for ((path, bytes) in files) {
@@ -58,11 +70,13 @@ object GithubSync {
         val (repo, token) = creds(context) ?: return Result(false, "还没填 token")
         return try {
             var got = 0
-            val phrase = remoteFile(repo, token, "custom_phrase.txt")
+            val phrase = remoteFile(repo, token, PHRASE)
             if (phrase != null) {
                 val dst = File(RimeDataInstaller.userDir(context), "custom_phrase.txt")
                 dst.parentFile?.mkdirs()
-                dst.writeBytes(phrase)
+                val local = if (dst.isFile) dst.readText() else ""
+                val merged = mergePhrases(local, phrase.toString(Charsets.UTF_8))
+                dst.writeText(merged)
                 // 让输入法下次弹键盘时重启引擎，把新词读进来
                 SyncPrefs.markPhraseReload(context)
                 got++
@@ -73,7 +87,8 @@ object GithubSync {
                 got++
             }
             if (got == 0) return Result(false, "远端没有这两个文件（先上传一次？）")
-            Result(true, "已下载 $got 个文件（${stamp()}）")
+            SyncPrefs.markFirstPullDone(context)
+            Result(true, "已下载 $got 个文件（词表取并集，${stamp()}）")
         } catch (t: Throwable) {
             Log.e(TAG, "download failed", t)
             Result(false, "下载失败：${t.message}")
@@ -91,10 +106,10 @@ object GithubSync {
     /** 要同步的本地文件：路径 → 内容。 */
     private fun localFiles(context: Context): List<Pair<String, ByteArray>> {
         val out = ArrayList<Pair<String, ByteArray>>()
-        val phrase = File(RimeDataInstaller.userDir(context), "custom_phrase.txt")
-        if (phrase.isFile) out.add("custom_phrase.txt" to phrase.readBytes())
-        val prefs = File(context.filesDir.parentFile, "shared_prefs/hexime_settings.xml")
-        if (prefs.isFile) out.add("hexime_settings.xml" to prefs.readBytes())
+        val phrase = File(RimeDataInstaller.userDir(context), PHRASE)
+        if (phrase.isFile) out.add(PHRASE to phrase.readBytes())
+        val prefs = File(context.filesDir.parentFile, "shared_prefs/$SETTINGS")
+        if (prefs.isFile) out.add(SETTINGS to prefs.readBytes())
         return out
     }
 
@@ -103,6 +118,33 @@ object GithubSync {
         if (code == 404) return null
         if (code !in 200..299) throw IllegalStateException("HTTP $code ${errOf(text)}")
         return JSONObject(text).optString("sha").takeIf { it.isNotEmpty() }
+    }
+
+    /** 取远端文件；404 当没有，不抛。 */
+    private fun remoteFileOrNull(repo: String, token: String, path: String): ByteArray? =
+        runCatching { remoteFile(repo, token, path) }.getOrNull()
+
+    /**
+     * 词表并集：本地在前（本地优先保留），远端独有的行追加。
+     * 词表格式「词<TAB>码[<TAB>权重]」；注释行去重；空行丢掉。
+     */
+    private fun mergePhrases(local: String, remote: String?): String {
+        val out = ArrayList<String>()
+        val seen = HashSet<String>()
+        fun add(raw: String) {
+            val line = raw.trimEnd()
+            if (line.isBlank()) return
+            if (line.startsWith("#")) {
+                if (out.none { it == line }) out.add(line)
+                return
+            }
+            val parts = line.split('\t')
+            val key = parts.getOrElse(0) { "" }.trim() + "\u0001" + parts.getOrElse(1, { "" }).trim()
+            if (seen.add(key)) out.add(line)
+        }
+        local.lines().forEach { add(it) }
+        remote?.lines()?.forEach { add(it) }
+        return out.joinToString("\n") + "\n"
     }
 
     private fun remoteFile(repo: String, token: String, path: String): ByteArray? {
