@@ -83,12 +83,17 @@ class KeyboardView(context: Context) : LinearLayout(context) {
     private var totalHeightPx: Int =
         (HeximeSettings.keyboardHeightDp(context) * resources.displayMetrics.density).toInt()
 
+    /** 上次应用的高度（dp）：和配色分开判断，只换配色时不重建视图。 */
+    private var appliedHeightDp: Int = HeximeSettings.keyboardHeightDp(context)
+
     private class KeyHolder(
         val view: View,
         /** 键面主字（容器里可能还有键角的长按字符）。 */
         val labelView: TextView,
         val k: KeyDef,
         val kind: KeyKind,
+        /** 键角的长按字符视图（换配色时单独上色）。 */
+        val cornerView: TextView? = null,
         val click: KeyAction,
         val long: KeyAction?,
         val composing: KeyAction?,
@@ -153,11 +158,34 @@ class KeyboardView(context: Context) : LinearLayout(context) {
      * 换配色 / 改高度：就地重建，**保持当前键盘页和 ascii 状态**
      * （用 setInputView 重建整个输入视图会把键盘弹回默认页）。
      */
+    /**
+     * 换配色 / 改高度。
+     * **只换配色时不再重建视图** —— 重建一次要 new ~100 个 View + drawable（几十 ms，
+     * 换配色是高频操作，切一下卡一下很明显）。只改高度才重建。
+     */
     fun applyTheme(palette: Palette, totalHeightDp: Int) {
+        val heightChanged = totalHeightDp != appliedHeightDp
         this.palette = palette
         totalHeightPx = (totalHeightDp * resources.displayMetrics.density).toInt()
         setBackgroundColor(palette.keyboardBg)
-        build()
+        if (heightChanged || keys.isEmpty()) {
+            appliedHeightDp = totalHeightDp
+            build()
+        } else {
+            repaint()
+        }
+    }
+
+    /** 只把新配色的颜色刷到已有视图上（背景 + 主字/小字色 + 键角字色）。 */
+    private fun repaint() {
+        keys.forEach { key ->
+            val kind = key.kind
+            key.view.background = keyBackground(kind)
+            key.labelView.setTextColor(keyTextColors(kind))
+            // 小字/角标色是烤进 Spannable 的，所以要重新设一次文字
+            key.labelView.text = face(key.k.label, key.k.hint, key.k.style, shift, faceSymbol(kind))
+            key.cornerView?.setTextColor(faceSymbol(kind))
+        }
     }
 
     /** 当前键盘 id（切方案时用来记住/还原用户原来用的键盘）。 */
@@ -462,12 +490,14 @@ class KeyboardView(context: Context) : LinearLayout(context) {
                         FrameLayout.LayoutParams.MATCH_PARENT,
                     )
                 }
+                val corner: TextView? =
+                    if (!placeholder && k.longLabel.isNotEmpty()) cornerLabel(k.longLabel, kind) else null
                 val container = FrameLayout(context).apply {
                     isClickable = false
                     background = if (placeholder) null else keyBackground(kind)
                     addView(labelView)
                     // 键角上的长按字符（小鹤键盘绑定的长按内容）
-                    if (!placeholder && k.longLabel.isNotEmpty()) addView(cornerLabel(k.longLabel, kind))
+                    corner?.let { addView(it) }
                 }
                 val lp = LayoutParams(0, h, k.width)
                 lp.marginStart = dp(2)
@@ -478,6 +508,7 @@ class KeyboardView(context: Context) : LinearLayout(context) {
                         labelView = labelView,
                         k = k,
                         kind = kind,
+                        cornerView = corner,
                         click = toAction(k.click, shift),
                         long = k.long?.let { toAction(it, shift) },
                         composing = k.composing?.let { candToAction(it) },
