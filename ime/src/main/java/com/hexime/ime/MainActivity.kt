@@ -257,8 +257,8 @@ class MainActivity : Activity() {
         root.addView(card("同步（GitHub）") { box ->
             box.addView(
                 sectionLabel(
-                    "自定义词表 + 设置 ↔ 私有仓库（和 Termux 那个备份脚本同一份文件、同一路径）。" +
-                        "加词后会自动上传；打开这一页会自动下载一次；也可以手动点下面两个按钮。",
+                    "自定义词表 + 设置 ↔ 你自己的私有仓库（走 GitHub 接口直连，不经第三方）。" +
+                        "加词后会自动上传；也可以随时手动点下面两个按钮。",
                 ),
             )
             syncStatus = TextView(this).apply {
@@ -270,7 +270,7 @@ class MainActivity : Activity() {
             updateSyncStatus()
 
             val tokenView = EditText(this).apply {
-                hint = "GitHub token（只存本机，单独一个 prefs 文件，不会跟着设置被推上去）"
+                hint = "GitHub token（只存在本机，不会跟着设置一起上传）"
                 setText(SyncPrefs.token(this@MainActivity))
                 textSize = 14f
                 inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
@@ -299,16 +299,16 @@ class MainActivity : Activity() {
             }
             box.addView(
                 sectionLabel(
-                    "规则：词表取并集（两边加的词都不丢）；设置是后写覆盖。" +
-                        "没成功拉取过一次之前，自动上传会跳过（免得新装的默认值冲掉云端）；" +
-                        "手动「上传」不受这个限制。",
+                    "规则：本地优先。词表取并集（两边加的词都不丢），设置整体覆盖。" +
+                        "你在这页改过东西、离开时会自动上传；云端内容只在「本机还没拉过」时自动应用一次，" +
+                        "之后想用云端覆盖本机，请点「下载」。",
                 ),
             )
             box.addView(filledButton("上传（本机 → GitHub）") {
                 saveCreds()
                 runSync(upload = true)
             })
-            box.addView(textButton("下载（GitHub → 本机）") {
+            box.addView(textButton("下载（用云端覆盖本机）") {
                 saveCreds()
                 runSync(upload = false)
             })

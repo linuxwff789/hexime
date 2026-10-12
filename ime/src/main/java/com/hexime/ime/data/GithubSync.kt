@@ -9,12 +9,14 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 /**
- * App 内直连 GitHub API 的同步（不依赖 Termux/root）。
+ * App 内直连 GitHub API 的同步（不依赖 root、不装额外东西）。
  *
- * 同步的文件和 Termux 那个备份脚本**完全一致**（同一仓库、同一路径），
- * 所以两条路可以互相接：
+ * 同步两个文件到私有仓库：
  *   custom_phrase.txt      自定义词表
  *   hexime_settings.xml    设置（配色/高度/方案/震动/跟手延迟）
+ *
+ * **本地优先**：云端内容只在本机「还没拉过」时自动应用一次；
+ * 平时改动只往上推，想用云端覆盖本机得手动点「下载」。
  *
  * token 存在**另一个** prefs 文件里（[SyncPrefs]），不会跟着设置被推上去。
  */
