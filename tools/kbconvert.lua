@@ -164,6 +164,17 @@ local SKIP_ICON = {
   ic_hint = "提示开关(未实现)",
   ic_note = "注解开关(未实现)",
   ic_candidate = "候选窗开关(未实现)",
+  -- 用户要求从选单里去掉的三个：
+  ic_theme = "主题(和「设置」重复)",
+  ic_menu = "选单(就是本键盘)",
+  ic_grid = "菜单2(并进选单)",
+}
+
+-- hexime 扩展：菜单2 并进选单后，把只存在于菜单2 的功能键补进来（否则「默认/助记」键盘切换就没入口了）。
+local MENU_EXTRA = {
+  { icon = "ic_keyboard", hint = "默认", click = { k = "kb", v = "default" }, style = "menu" },
+  { icon = "ic_keyboard_star", hint = "助记", click = { k = "kb", v = "defaultVJ" }, style = "menu" },
+  { icon = "ic_halfwidth", hint = "全半角", click = { k = "toggle", v = "full_shape" }, style = "menu" },
 }
 
 local dropped = {}
@@ -207,7 +218,7 @@ local function convert(path)
     local total = 0
     for _, k in ipairs(keys0) do total = total + (k.width or env.key_width or (100 / #keys0)) end
     local kept, gone = {}, {}
-    for _, k in ipairs(keys0) do
+    for ki, k in ipairs(keys0) do
       local ct = type(k.click) == "table" and k.click or nil
       local ico = nil
       local lb = k.label or (ct and ct.label)
@@ -216,8 +227,20 @@ local function convert(path)
          and ct.states[1]:match("^ic_") then
         ico = ct.states[1]
       end
+      -- 行首/行尾的纯占位（trime2 拿来错位用的 width-only 空键，例如 a 前面那个）。
+      -- 用户要求：不要留空白，把这一行的键加宽铺满。行内的占位保留（布局需要）。
+      -- 注意：必须「什么动作都没有」才算占位 —— 字母键是 click = "q"（字符串），
+      -- 只看 click 是不是 table 会把整行字母当占位删掉。
+      local hasAction = k.click ~= nil or k.long_click ~= nil or k.swipe_up ~= nil
+        or k.swipe_down ~= nil or k.swipe_left ~= nil or k.swipe_right ~= nil
+        or k.ascii ~= nil or k.composing ~= nil
+      local isSpacer = not hasAction and lb == nil
+        and (k.hint == nil or k.hint == "") and (k.icon == nil or k.icon == "")
+      local atEdge = (ki == 1 or ki == #keys0)
       if ico and SKIP_ICON[ico] then
         gone[#gone + 1] = SKIP_ICON[ico]
+      elseif isSpacer and atEdge then
+        gone[#gone + 1] = "行" .. (ki == 1 and "首" or "尾") .. "占位"
       else
         kept[#kept + 1] = k
       end
@@ -314,8 +337,38 @@ local function convert(path)
       end
       out.keys[#out.keys + 1] = o
     end
+    -- 凑不满 100% 的行按比例铺满（trime2 有些页面故意留几个点的缺口，看起来就是个豁口）
+    if sum > 0 and math.abs(sum - 100) > 0.05 then
+      local k100 = 100 / sum
+      for _, o in ipairs(out.keys) do o.w = o.w * k100 end
+      sum = 100
+    end
     out.sum = math.floor(sum * 100 + 0.5) / 100
     kb.rows[#kb.rows + 1] = out
+  end
+
+  -- hexime 扩展：选单重排。原来 5x3 的选单去掉「主题/选单/菜单2」后只剩 12 个键，
+  -- 再并进菜单2 的三个独有功能键（默认/助记/全半角），正好 15 个 → 重新铺成 5 列 x3 行，每行等宽铺满。
+  if kb.id == "menu" then
+    local all = {}
+    for _, row in ipairs(kb.rows) do
+      for _, k in ipairs(row.keys) do all[#all + 1] = k end
+    end
+    for _, k in ipairs(MENU_EXTRA) do all[#all + 1] = k end
+    local per = 5
+    local nrows = math.ceil(#all / per)
+    local rows = {}
+    for i = 1, #all, per do
+      local keys = {}
+      for j = i, math.min(i + per - 1, #all) do
+        local k = all[j]
+        k.w = 100 / per
+        k.style = k.style or "menu"
+        keys[#keys + 1] = k
+      end
+      rows[#rows + 1] = { h = 100 / nrows, keys = keys, sum = 100 }
+    end
+    kb.rows = rows
   end
   return kb
 end
@@ -337,10 +390,14 @@ for _, f in ipairs(files) do
   if not kb then
     skipped[#skipped + 1] = basename(f) .. " (" .. err .. ")"
   else
-    local fp = io.open(OUT .. "/" .. kb.id .. ".json", "w")
-    fp:write(jval(kb))
-    fp:close()
-    done = done + 1
+    if kb.id == "menux" then
+      skipped[#skipped + 1] = "menux (已并进选单)"
+    else
+      local fp = io.open(OUT .. "/" .. kb.id .. ".json", "w")
+      fp:write(jval(kb))
+      fp:close()
+      done = done + 1
+    end
     for ri, row in ipairs(kb.rows) do
       if math.abs(row.sum - 100) > 0.05 then
         badrows[#badrows + 1] = string.format("%s row%d sum=%.2f", kb.id, ri, row.sum)
