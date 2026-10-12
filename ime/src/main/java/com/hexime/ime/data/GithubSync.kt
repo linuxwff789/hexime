@@ -72,7 +72,12 @@ object GithubSync {
 
     /** 下载：GitHub → 本地（词表直接写文件，设置解析后走 setter 落盘）。 */
     fun download(context: Context): Result {
-        val (repo, token) = creds(context) ?: return Result(false, "还没填 token")
+        val (repoRaw, token) = creds(context) ?: return Result(false, "还没填 token / 仓库")
+        val repo = try {
+            resolveRepo(repoRaw, token)
+        } catch (t: Throwable) {
+            return Result(false, "仓库解析失败：${t.message}")
+        }
         return try {
             var got = 0
             val phrase = remoteFile(repo, token, PHRASE)
