@@ -50,6 +50,10 @@ find "$WORK/prelude" "$WORK/luna" "$WORK/stroke" -maxdepth 1 -type f \
 
 # 小鹤音形：开源码表 openfly (MIT)
 clone amorphobia/openfly openfly
+# 反查 schema 本体（openfly_reverse.schema.yaml）——它是 openfly 的 dependency，
+# 部署器靠它把 openfly_reverse.dict.yaml 编译成 openfly_reverse.table.bin
+cp "$WORK/openfly/openfly_reverse.schema.yaml" "$DEST/" 2>/dev/null || true
+
 for f in "$WORK/openfly"/openfly*.dict.yaml; do
   base="$(basename "$f")"
   # openfly_reverse.dict.yaml 就是「反查」用的码表（官方方案里 recognizer 用反引号触发），要带上
@@ -68,6 +72,12 @@ schema:
     - 方案设计: 何海峰
     - 码表: amorphobia/openfly (MIT)
   description: 小鹤音形码表
+  # ★ 关键：反查表 openfly_reverse 必须在这里声明成依赖。
+  # librime 的部署器（deployment_tasks.cc）只编译 schema_list 里的方案 + 它们
+  # schema/dependencies 里声明的依赖；reverse_lookup/dictionary 指到的表不会自动编译。
+  # luna 的笔画反查能用，正是因为 luna_pinyin.schema.yaml 里写了 dependencies: [stroke]。
+  dependencies:
+    - openfly_reverse
 
 switches:
   - name: ascii_mode
@@ -122,7 +132,9 @@ reverse_lookup:
   tips: 〔反查〕
 
 recognizer:
+  import_preset: default
   patterns:
+    uppercase: ""
     reverse_lookup: "[a-z`]*`+[a-z`]*"
 
 # 用户加词：词条写在 <user>/custom_phrase.txt，一行「词<tab>码」

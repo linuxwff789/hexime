@@ -241,6 +241,14 @@ local function convert(path)
       if o.style == "space" and o.up == nil then
         o.up = { k = "cmd", v = "addword" }
       end
+      -- hexime 扩展：反查要用反引号触发（openfly 官方 recognizer 的 pattern）。
+      -- 助记键盘 defaultVJ 的 z 长按是空动作 → 补上反引号（默认键盘 default 本来就有）。
+      if o.click and o.click.k == "sym" and o.click.v == "z"
+         and (o.long == nil or o.long.k == "none") then
+        o.long = { k = "sym", v = "`" }
+        o.longLabel = "`"
+      end
+
       -- hexime 扩展：选单里那个「语音」键在 hexime 是空动作（k=none），
       -- 换成「方案」——循环切 openfly / luna_pinyin 等（trime2 的选单里有方案，hexime 原本没有）。
       if o.click and o.click.k == "none" and (o.label == "语音" or o.label == "語音") then
