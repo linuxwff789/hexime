@@ -76,14 +76,15 @@ jobs:
           path: ime/build/outputs/apk/release/*.apk
           if-no-files-found: error
 
-      # main 每次编译完发一个滚动 Release；推 v1.0 这种 tag 则发对应版本号
-      # （签名固定 → 手机上可以直接 pm install -r 覆盖升级）
+      # 只在推 v* tag 时发 Release（平时 main 的每次 push 只编译 + 传 artifact，
+      # 否则一晚上攒出一堆 ime-<run_number> 的滚动包，用户得手动删）。
+      # 签名固定 → Releases 里的包可以直接覆盖升级。
       - name: Publish to Release
-        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || format('ime-{0}', github.run_number) }}
-          name: ${{ startsWith(github.ref, 'refs/tags/v') && format('hexime {0}', github.ref_name) || format('hexime ime-{0} · {1}', github.run_number, github.sha) }}
+          tag_name: ${{ github.ref_name }}
+          name: hexime ${{ github.ref_name }}
           body: |
             自动构建 · commit `${{ github.sha }}` · run #${{ github.run_number }}
 
