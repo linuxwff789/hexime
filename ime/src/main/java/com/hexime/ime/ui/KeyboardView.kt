@@ -104,8 +104,8 @@ class KeyboardView(context: Context) : LinearLayout(context) {
         var composing: KeyAction?,
         var up: KeyAction?,
         var down: KeyAction?,
-        val left: KeyAction?,
-        val right: KeyAction?,
+        var left: KeyAction?,
+        var right: KeyAction?,
     ) {
         val rect = Rect()
 
