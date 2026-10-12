@@ -14,11 +14,13 @@ object Schemas {
     const val OPENFLY_ID = "openfly"
 
     /**
-     * 只留两个常用的：小鹤音形 + 朙月拼音。
-     * （简体拼音/全拼/笔画实测没人用，留着只会在选单里多转几下。）
+     * 可选方案。openfly / rime_ice 随 APK 自带（assets/rime）；
+     * 「小鹤官方」(flypy) 是官方鼠须管那套的 schema + 预编译词库表，
+     * 文件不进仓库，由使用者自己放到设备的 rime 目录里，放了就能在选单/设置里选到。
      */
     val ALL: List<Pair<String, String>> = listOf(
         "openfly" to "小鹤音形",
+        "flypy" to "小鹤官方",
         "rime_ice" to "雾凇拼音",
     )
 
