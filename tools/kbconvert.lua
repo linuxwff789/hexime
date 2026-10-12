@@ -362,6 +362,14 @@ local function convert(path)
       for _, k in ipairs(row.keys) do all[#all + 1] = k end
     end
     for _, k in ipairs(MENU_EXTRA) do all[#all + 1] = k end
+    -- 「返回」放最后一个（用户要求）
+    for i, k in ipairs(all) do
+      if k.icon == "ic_back" then
+        local back = table.remove(all, i)
+        all[#all + 1] = back
+        break
+      end
+    end
     local per = 5
     local nrows = math.ceil(#all / per)
     local rows = {}

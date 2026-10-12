@@ -99,6 +99,12 @@ schema:
   dependencies:
     - openfly_reverse
 
+# ★ 标点映射：不引这个的话引擎会一直报 `punctuator.cc: missing punctuation mapping`，
+# 句号/逗号会落回「直接上屏 ASCII」，中文下打出英文点、全半角开关也没效果。
+# punctuation.yaml（rime-prelude）里 half_shape/full_shape 两套映射，正好对应 中英/全半角 开关。
+punctuator:
+  import_preset: default
+
 switches:
   - name: ascii_mode
     reset: 0

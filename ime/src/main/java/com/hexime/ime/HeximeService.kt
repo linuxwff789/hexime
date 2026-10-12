@@ -186,13 +186,13 @@ class HeximeService : InputMethodService() {
             setTextColor(palette.candidateComment)
             setPadding(dp(10), dp(1), dp(10), dp(1))
             gravity = Gravity.END
-            // 点状态栏切换跟手延迟显示
+            // 点状态栏上的方案名 = 切换方案（和选单里的「方案」键一样循环）。
+            // 「跟手延迟」显示改到设置页的开关控制。
             isClickable = true
             setOnClickListener {
-                val next = !latencyOn
-                HeximeSettings.setShowLatency(this@HeximeService, next)
-                latencyOn = next
-                updateStatus()
+                if (ready && engine.hasSession()) {
+                    applySchema(Schemas.next(engine.currentSchema()))
+                }
             }
         }
         statusView = status
@@ -829,12 +829,16 @@ class HeximeService : InputMethodService() {
             ic.commitText(commit, 1)
             composingActive = false
         }
-        // 组合区空了必须用 finishComposingText()，**绝对不能** setComposingText("")：
-        // 编辑器里只要有选区（刚做完「全选」、或用户自己划了一段），
-        // 空的 composing 会把选区整段替换掉 —— 表现就是「上滑 a 全选，结果内容全没了」。
+        // 组合清空时要把编辑器里那层组合文字**抹掉**，不能用 finishComposingText()：
+        // 后者的语义是「定稿」——把当前显示的组合文字留成正常文本。表现就是用户报的
+        // 「打一长串没上屏，退格退到最后一个字符时，最后一个字符被上屏了」。
+        // 用 setComposingText("") 才是删掉它。
+        // 但只在 composingActive=true 时调：这时组合区里只有我们自己的拼音，抹掉它不会误伤
+        // 用户的选区（反过来，组合区为空时无脑 setComposingText("")，会把选区整段替换掉 ——
+        // 那正是之前「上滑 a 全选结果内容全没了」的原因）。
         if (snapshot.composition.isEmpty()) {
             if (composingActive) {
-                ic.finishComposingText()
+                ic.setComposingText("", 1)
                 composingActive = false
             }
         } else {
