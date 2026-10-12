@@ -29,6 +29,10 @@ data class KeyDef(
     val style: String,
     /** 键角上要显示的长按字符（trime2 也有这个）。 */
     val longLabel: String = "",
+    /** 键面图标：trime2 主题里的单色 PNG 名（assets/icons/<icon>.png），按配色染色画在键面。 */
+    val icon: String = "",
+    /** 状态类按键的第二个图标（states[1]），开关打开时用。 */
+    val iconAlt: String = "",
     val click: KbAction? = null,
     val long: KbAction? = null,
     /** 组合中按此键 = 选第 N 候选（trime2 的 composing = delimiterJ/S）。 */
@@ -97,6 +101,8 @@ object KeyboardRepo {
                         hint = k.optString("hint", ""),
                         style = k.optString("style", ""),
                         longLabel = k.optString("longLabel", ""),
+                        icon = k.optString("icon", ""),
+                        iconAlt = k.optString("iconAlt", ""),
                         click = action(k.optJSONObject("click")),
                         long = action(k.optJSONObject("long")),
                         composing = action(k.optJSONObject("composing")),

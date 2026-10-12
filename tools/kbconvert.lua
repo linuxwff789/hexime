@@ -110,9 +110,9 @@ local function to_action(c)
     -- 小鹤选单的「配色」键：trime2 里是换配色的广播，hexime 里 = 循环下一个配色
     if c == "PROG_RED" then return { k = "cmd", v = "palette" } end
     if c == "Eisu_toggle" or c == "Mode_switch" then return { k = "toggle", v = "ascii_mode" } end
-    if c == "Menu" or c == "VOICE_ASSIST" or c == "function" then
-      return { k = "none" }
-    end
+    if c == "Menu" then return { k = "kb", v = "menu" } end -- trime2 的 Menu = rime 选单；hexime 里 = 打开选单键盘
+    if c == "VOICE_ASSIST" then return { k = "none" } end   -- hexime 没有语音输入（功能缺失，图标仍在）
+    if c == "function" then return { k = "none" } end        -- 带 command 的 function 已在 table 分支处理
     if c == "space1" or c == "Space" then return { k = "key", v = "space" } end
     if NAMED[c] then return { k = "key", v = c } end
     -- 其余都是「要上屏的文本」：小鹤的成对标点、音标、颜文字、emoji…
@@ -214,15 +214,26 @@ local function convert(path)
         if plain == "" then plain = act.v end
         label = utf8_trunc(plain, 4)
       end
-      -- trime2 的图标键面(ic_xxx)在 hexime 里没有图，退化成中文小字当键面
+      -- trime2 的图标键面(ic_xxx) 已转成 icon 字段（上面），键面文字留空
+
+      local icon, iconAlt = nil, nil
       if label and label:match("^ic_") then
-        label = (hint ~= "" and hint) or ""
-        hint = ""
+        icon = label
+        label = ""
       end
+      -- 状态类按键：states 写的是两个图标名（关/开），画当前状态的那个
+      if clickTable and type(clickTable.states) == "table"
+         and type(clickTable.states[1]) == "string" and clickTable.states[1]:match("^ic_") then
+        icon = icon or clickTable.states[1]
+        iconAlt = clickTable.states[2]
+      end
+
       local o = {
         w = w,
         label = label or "",
         hint = hint,
+        icon = icon or "",
+        iconAlt = iconAlt or "",
         click = act,
         long = to_action(k.long_click),
         up = to_action(k.swipe_up),

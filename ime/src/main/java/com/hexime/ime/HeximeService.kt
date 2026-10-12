@@ -4,6 +4,7 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.graphics.Color
+import android.icu.util.ChineseCalendar
 import android.inputmethodservice.InputMethodService
 import android.os.Build
 import android.os.Handler
@@ -28,6 +29,9 @@ import com.hexime.ime.data.SyncPrefs
 import com.hexime.ime.engine.InputEngine
 import com.hexime.ime.engine.RimeEngine
 import com.hexime.ime.ui.AddWordDialog
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import com.hexime.ime.ui.CandidateBar
 import com.hexime.ime.ui.HeximePalettes
 import com.hexime.ime.ui.KeyAction
@@ -99,6 +103,8 @@ class HeximeService : InputMethodService() {
 
     /** 简体/繁体（小鹤选单的「简繁」键）。 */
     private var simplified = false
+    /** 全/半角（小鹤菜单2 的 full_shape 键）。引擎只写不读，所以本地记一份。 */
+    private var fullShape = false
 
     /** 当前组合串（键盘侧判断 `.` 键是否要当次选用）。 */
     private var composition = ""
@@ -537,8 +543,14 @@ class HeximeService : InputMethodService() {
             "simplification" -> {
                 simplified = !simplified
                 engine.setOption("simplification", simplified)
+                flashStatus(if (simplified) "简体" else "繁体")
             }
-            // _hide_candidate / _hide_comment / _hide_key_hint / full_shape：hexime 暂无对应
+            "full_shape" -> {
+                fullShape = !fullShape
+                engine.setOption("full_shape", fullShape)
+                flashStatus(if (fullShape) "全角" else "半角")
+            }
+            // _hide_candidate / _hide_comment / _hide_key_hint：trime2 的 UI 开关，hexime 暂无对应
         }
     }
 
@@ -564,8 +576,52 @@ class HeximeService : InputMethodService() {
             "palette" -> showPalettePicker()
             "schema" -> applySchema(Schemas.next(engine.currentSchema()))
             "addword" -> showAddWordDialog(clipboardChineseWord().orEmpty())
-            // run / web_search / deploy / date：trime2 专属，暂不移植
+            // trime2 的 broadcast deploy：重新扫配置 + 重编词库（第一次装完/改了词库后用）
+            "deploy" -> {
+                flashStatus("正在重新部署…")
+                reloadEngine()
+            }
+            // trime2 的 date：农历键传的是 zh_CN@calendar=chinese
+            "date" -> currentInputConnection?.commitText(dateText(option), 1)
+            // trime2 的 run：启动外部 App（计算器键）。hexime 有 SYSTEM_ALERT_WINDOW，
+            // 所以从输入法里后台启动 Activity 不会被 Android 拦。
+            "run" -> launchApp(option)
+            // web_search：trime2 专属，暂不移植
         }
+    }
+
+    /** 日期文本：option 带 calendar=chinese 就出农历（干支 + 月日），否则公历。 */
+    private fun dateText(option: String): String {
+        if (!option.contains("calendar=chinese")) {
+            return SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
+        }
+        val cc = ChineseCalendar()
+        val year = cc.get(ChineseCalendar.EXTENDED_YEAR) - 2637
+        val month = cc.get(ChineseCalendar.MONTH)
+        val day = cc.get(ChineseCalendar.DAY_OF_MONTH)
+        val leap = cc.get(ChineseCalendar.IS_LEAP_MONTH) == 1
+        val gan = "甲乙丙丁戊己庚辛壬癸"
+        val zhi = "子丑寅卯辰巳午未申酉戌亥"
+        val months = arrayOf("正", "二", "三", "四", "五", "六", "七", "八", "九", "十", "冬", "腊")
+        val days = arrayOf(
+            "初一", "初二", "初三", "初四", "初五", "初六", "初七", "初八", "初九", "初十",
+            "十一", "十二", "十三", "十四", "十五", "十六", "十七", "十八", "十九", "二十",
+            "廿一", "廿二", "廿三", "廿四", "廿五", "廿六", "廿七", "廿八", "廿九", "三十",
+        )
+        val g = ((year - 4) % 10 + 10) % 10
+        val z = ((year - 4) % 12 + 12) % 12
+        val m = months[month.coerceIn(0, 11)]
+        val d = days[(day - 1).coerceIn(0, 29)]
+        return "${gan[g]}${zhi[z]}年${if (leap) "闰" else ""}${m}月$d"
+    }
+
+    /** 启动外部 App（包名）。找不到就静默失败。 */
+    private fun launchApp(pkg: String) {
+        if (pkg.isEmpty()) return
+        val intent = packageManager.getLaunchIntentForPackage(pkg) ?: return
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        runCatching { startActivity(intent) }
+            .onFailure { Log.w(TAG, "launchApp $pkg failed: ${it.message}") }
     }
 
     // ---------------------------------------------------------------- 配色

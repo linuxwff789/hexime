@@ -2,7 +2,12 @@ package com.hexime.ime.ui
 
 import android.content.Context
 import android.content.res.ColorStateList
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.PorterDuff
+import android.graphics.PorterDuffColorFilter
 import android.graphics.Rect
+import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
@@ -185,6 +190,16 @@ class KeyboardView(context: Context) : LinearLayout(context) {
             // 小字/角标色是烤进 Spannable 的，所以要重新设一次文字
             key.labelView.text = face(key.k.label, key.k.hint, key.k.style, shift, faceSymbol(kind))
             key.cornerView?.setTextColor(faceSymbol(kind))
+            // 图标是染色烘焙的（缓存按颜色分键），换配色要重新取
+            if (key.k.icon.isNotEmpty()) {
+                val size = (key.view.layoutParams.height * 0.46f).toInt().coerceAtMost(dp(28))
+                key.labelView.setCompoundDrawables(
+                    null,
+                    iconDrawable(key.k.icon, keyTextColors(kind).defaultColor, size),
+                    null,
+                    null,
+                )
+            }
         }
     }
 
@@ -476,11 +491,26 @@ class KeyboardView(context: Context) : LinearLayout(context) {
             // 行高 = 键盘总高 × 该行 h%（小鹤的 h% 每页加起来都是 100，所以各页总高一致）
             val h = (totalHeightPx * row.heightPercent / 100f).toInt().coerceAtLeast(dp(16))
             for (k in row.keys) {
-                val placeholder = k.label.isEmpty() && k.hint.isEmpty() && k.click == null
+                val placeholder = k.label.isEmpty() && k.hint.isEmpty() && k.click == null &&
+                    k.icon.isEmpty()
                 val kind = kindOf(k)
+                val iconSize = (h * 0.46f).toInt().coerceAtMost(dp(28))
                 val labelView = TextView(context).apply {
-                    text = face(k.label, k.hint, k.style, shift, faceSymbol(kind))
-                    setTextSize(TypedValue.COMPLEX_UNIT_SP, if (k.hint.isNotEmpty()) 15f else 19f)
+                    if (k.icon.isNotEmpty()) {
+                        // trime2 的图标键面：单色 PNG 按配色染色画在上，中文小字在下
+                        setCompoundDrawables(
+                            null,
+                            iconDrawable(k.icon, keyTextColors(kind).defaultColor, iconSize),
+                            null,
+                            null,
+                        )
+                        compoundDrawablePadding = dp(1)
+                        text = face("", k.hint, k.style, shift, faceSymbol(kind))
+                        setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
+                    } else {
+                        text = face(k.label, k.hint, k.style, shift, faceSymbol(kind))
+                        setTextSize(TypedValue.COMPLEX_UNIT_SP, if (k.hint.isNotEmpty()) 15f else 19f)
+                    }
                     setTextColor(keyTextColors(kind))
                     gravity = Gravity.CENTER
                     setPadding(0, 0, 0, 0)
@@ -585,6 +615,29 @@ class KeyboardView(context: Context) : LinearLayout(context) {
             topMargin = dp(1)
             marginEnd = dp(3)
         }
+    }
+
+    /** 图标缓存：trime2 主题的单色 PNG（assets/icons/*.png），按「名字|颜色|尺寸」缓存染色结果。 */
+    private val iconCache = HashMap<String, Drawable>()
+
+    /**
+     * 键面图标：读 trime2 主题的 ic_*.png，缩到键高的一半，用 SRC_IN 套上按键文字色
+     * （trime2 的 KeyStyle.getSpan 就是这么做的，12 套配色自动跟着变）。
+     */
+    private fun iconDrawable(name: String, color: Int, sizePx: Int): Drawable? {
+        val cacheKey = "$name|$color|$sizePx"
+        iconCache[cacheKey]?.let { return it }
+        val src = runCatching {
+            context.assets.open("icons/$name.png").use { BitmapFactory.decodeStream(it) }
+        }.getOrNull() ?: return null
+        val scaled = Bitmap.createScaledBitmap(src, sizePx, sizePx, true)
+        if (scaled !== src) src.recycle()
+        val d = BitmapDrawable(context.resources, scaled).apply {
+            colorFilter = PorterDuffColorFilter(color, PorterDuff.Mode.SRC_IN)
+            setBounds(0, 0, sizePx, sizePx)
+        }
+        iconCache[cacheKey] = d
+        return d
     }
 
     /** 键面文字：主字 + 小号 hint（小鹤助记键盘的韵母/字根）。 */
