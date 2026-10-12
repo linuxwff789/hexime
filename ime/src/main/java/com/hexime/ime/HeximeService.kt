@@ -23,6 +23,7 @@ import android.widget.TextView
 import com.hexime.ime.data.HeximeSettings
 import com.hexime.ime.data.RimeDataInstaller
 import com.hexime.ime.data.Schemas
+import com.hexime.ime.data.SyncPrefs
 import com.hexime.ime.engine.InputEngine
 import com.hexime.ime.engine.RimeEngine
 import com.hexime.ime.ui.AddWordDialog
@@ -272,6 +273,8 @@ class HeximeService : InputMethodService() {
         val wanted = HeximeSettings.schemaId(this)
         if (ready && engine.hasSession() && wanted != engine.currentSchema()) applySchema(wanted)
         ensureSession()
+        // 设置页里「下载」过词表 → 重启引擎把新词读进来（stabledb 打开即缓存，必须重启）
+        if (ready && SyncPrefs.consumePhraseReload(this)) reloadEngine()
         refresh()
     }
 

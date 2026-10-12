@@ -32,8 +32,10 @@ import android.widget.Spinner
 import android.widget.Switch
 import android.widget.TextView
 import com.hexime.ime.data.HeximeSettings
+import com.hexime.ime.data.GithubSync
 import com.hexime.ime.data.RimeDataInstaller
 import com.hexime.ime.data.Schemas
+import com.hexime.ime.data.SyncPrefs
 import com.hexime.ime.engine.RimeEngine
 import com.hexime.ime.ui.HeximePalettes
 import java.util.concurrent.Executors
@@ -51,6 +53,7 @@ class MainActivity : Activity() {
     private lateinit var statusView: TextView
     private lateinit var vibValue: TextView
     private lateinit var heightValue: TextView
+    private lateinit var syncStatus: TextView
     private val io = Executors.newSingleThreadExecutor()
     private val main = Handler(Looper.getMainLooper())
 
@@ -210,6 +213,59 @@ class MainActivity : Activity() {
                     HeximeSettings.showLatency(this@MainActivity),
                 ) { checked -> HeximeSettings.setShowLatency(this@MainActivity, checked) },
             )
+        })
+
+        // ---------------- 卡片：同步 ----------------
+        root.addView(card("同步（GitHub）") { box ->
+            box.addView(
+                sectionLabel(
+                    "把自定义词表 + 设置推到私有仓库（和 Termux 那个备份脚本同一份文件、同一路径）",
+                ),
+            )
+            syncStatus = TextView(this).apply {
+                textSize = 13f
+                setTextColor(c.onSurfaceVariant)
+                setPadding(0, 0, 0, dp(4))
+            }
+            box.addView(syncStatus)
+            updateSyncStatus()
+
+            val tokenView = EditText(this).apply {
+                hint = "GitHub token（只存本机，单独一个 prefs 文件，不会跟着设置被推上去）"
+                setText(SyncPrefs.token(this@MainActivity))
+                textSize = 14f
+                inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+                setTextColor(c.onSurface)
+                setHintTextColor(c.onSurfaceVariant)
+                setPadding(dp(12), dp(10), dp(12), dp(10))
+                background = rounded(c.surfaceContainer, 12f, c.outline, 1)
+            }
+            box.addView(tokenView)
+
+            val repoView = EditText(this).apply {
+                hint = "仓库 owner/name"
+                setText(SyncPrefs.repo(this@MainActivity))
+                textSize = 14f
+                inputType = InputType.TYPE_CLASS_TEXT
+                setTextColor(c.onSurface)
+                setHintTextColor(c.onSurfaceVariant)
+                setPadding(dp(12), dp(10), dp(12), dp(10))
+                background = rounded(c.surfaceContainer, 12f, c.outline, 1)
+            }
+            box.addView(repoView)
+
+            fun saveCreds() {
+                SyncPrefs.setToken(this@MainActivity, tokenView.text.toString())
+                SyncPrefs.setRepo(this@MainActivity, repoView.text.toString())
+            }
+            box.addView(filledButton("上传（本机 → GitHub）") {
+                saveCreds()
+                runSync(upload = true)
+            })
+            box.addView(textButton("下载（GitHub → 本机）") {
+                saveCreds()
+                runSync(upload = false)
+            })
         })
 
         // ---------------- 卡片：测试输入 ----------------
@@ -404,6 +460,25 @@ class MainActivity : Activity() {
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
 
     // ------------------------------------------------------------ 逻辑
+
+    private fun updateSyncStatus() {
+        syncStatus.text = SyncPrefs.lastSync(this).ifEmpty { "还没同步过" }
+    }
+
+    /** 同步（后台线程，结果回到设置页显示）。 */
+    private fun runSync(upload: Boolean) {
+        syncStatus.text = if (upload) "上传中…" else "下载中…"
+        io.execute {
+            val result = runCatching {
+                if (upload) GithubSync.upload(this) else GithubSync.download(this)
+            }.getOrElse { GithubSync.Result(false, "异常：${it.message}") }
+            main.post {
+                val line = "${if (result.ok) "上次同步" else "上次失败"}：${result.message}"
+                SyncPrefs.setLastSync(this, line)
+                syncStatus.text = result.message
+            }
+        }
+    }
 
     private fun updateVibLabel(percent: Int) {
         vibValue.text = if (percent <= 0) "震动：关闭" else "震动：$percent%"

@@ -2,6 +2,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- 设置页里的 GitHub 同步（App 内直连 API） -->
+    <uses-permission android:name="android.permission.INTERNET" />
     <!-- 加词窗口：IME 里要弹可聚焦的窗口，只有 TYPE_APPLICATION_OVERLAY 能拿到焦点 -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
