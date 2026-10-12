@@ -160,7 +160,7 @@ class MainActivity : Activity() {
             }
             box.addView(schemaSpinner)
 
-            box.addView(sectionLabel("配色（来自 trime2 小鹤主题，换完下次弹键盘生效）"))
+            box.addView(sectionLabel("配色（换完下次弹键盘生效）"))
             val palettes = HeximePalettes.ALL
             paletteSpinner = Spinner(this).apply {
                 adapter = ArrayAdapter(

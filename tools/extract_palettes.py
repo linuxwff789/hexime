@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""从 trime2 小鹤主题的 12 个配色里抽出 hexime 需要的色板字段。
+"""从 12 个配色 lua 里抽出 hexime 需要的色板字段。
 
 用法: python3 extract_palettes.py <theme_dir> <dump_json_dir> [--kt out.kt]
 """
@@ -117,7 +117,7 @@ def main():
             key_pressed_text = contrast_color(key_pressed)
         else:
             key_pressed_text = argb(key_pressed_text, theme_dir, style_dir)
-        # 功能键（⌫/⇧/选单…）、回车、空格：小鹤主题里各自一套底色（functional/enter/space）
+        # 功能键（⌫/⇧/选单…）、回车、空格：各自一套底色（functional/enter/space）
         func_face = argb(get(tbl, "functional", "background"), theme_dir, style_dir, fallback=rgb_of(key_face))
         func_text = argb(get(tbl, "functional", "text_color"), theme_dir, style_dir, fallback=rgb_of(key_text))
         func_symbol = argb(get(tbl, "functional", "key_symbol_color"), theme_dir, style_dir, fallback=rgb_of(func_text))
@@ -139,7 +139,7 @@ def main():
         key_symbol = fix_symbol(key_symbol, key_face, key_text)
         func_symbol = fix_symbol(func_symbol, func_face, func_text)
 
-        # 顶栏/状态栏文字（trime2 顶层 text_color）
+        # 顶栏/状态栏文字（顶层 text_color）
         status_text = argb(tbl.get("text_color"), theme_dir, style_dir, fallback=rgb_of(key_text))
         cand_bg = argb(get(tbl, "candidate", "background"), theme_dir, style_dir, fallback=(0xFF, 0xFF, 0xFF))
         cand_text = argb(get(tbl, "candidate", "text_color"), theme_dir, style_dir)
@@ -147,7 +147,7 @@ def main():
         cand_comment = argb(cand_comment, theme_dir, style_dir) if cand_comment is not None else cand_text
         cand_pressed = argb(get(tbl, "candidate", "pressed", "background"), theme_dir, style_dir, fallback=(0x90, 0xA4, 0xAE))
 
-        # 键盘区底色：trime2 用 keyboard.background（整块），hexime 用它当键外底色
+        # 键盘区底色：源布局用 keyboard.background（整块），hexime 用它当键外底色
         p = {
             "id": base,
             "name": name,
@@ -189,7 +189,7 @@ def main():
             "package com.hexime.ime.ui",
             "",
             "/**",
-            " * 配色板 —— 由 tools/extract_palettes.py 从 trime2 小鹤主题的 styles/<配色>/main.lua 抽出，",
+            " * 配色板 —— 由 tools/extract_palettes.py 从配色 lua 抽出，",
             " * 图片键面取该 png 的主色（hexime 没有皮肤系统，只用颜色）。改配色跑一遍脚本即可。",
             " */",
             "data class Palette(",
@@ -199,7 +199,7 @@ def main():
             "    val keyboardBg: Int,",
             "    val keyFace: Int,",
             "    val keyText: Int,",
-            "    /** 小字/键角长按字符的颜色（trime2 key_symbol_color）。 */",
+            "    /** 小字/键角长按字符的颜色。 */",
             "    val keySymbol: Int,",
             "    /** 键边框色（浅色几套配色的主要差别就在这）。 */",
             "    val keyBorder: Int,",

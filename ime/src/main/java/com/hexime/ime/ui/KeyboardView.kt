@@ -44,7 +44,7 @@ sealed class KeyAction {
     /** 按键序列宏，如 {End}{Shift+Home}{Control+c}。 */
     data class Text(val text: String) : KeyAction()
 
-    /** 切键盘（trime2 的 select）。 */
+    /** 切键盘（对应键盘定义里的 select）。 */
     data class Kb(val id: String) : KeyAction()
 
     /** 开关：ascii_mode / simplification / ... */
@@ -60,7 +60,7 @@ sealed class KeyAction {
 }
 
 /**
- * 数据驱动的键盘：布局来自 assets/keyboards/<id>.json（由小鹤主题的 trime2 键盘转换而来）。
+ * 数据驱动的键盘：布局来自 assets/keyboards/<id>.json（由键盘 lua 布局转换而来）。
  *
  * 沿用原有设计：**不使用子 View 的 OnClickListener**，在键盘（ViewGroup）层统一处理触摸，
  * 因此支持多点触控（多键齐按/手指重叠不丢键）。
@@ -84,7 +84,7 @@ class KeyboardView(context: Context) : LinearLayout(context) {
     /** 配色（来自 HeximePalettes，可在设置页/选单里换）。 */
     private var palette: Palette = HeximePalettes.byId(HeximeSettings.paletteId(context))
 
-    /** 键盘**总高度**（像素）：行高 = 总高 × 该行 h%（小鹤/trime2 语义，各页高度一致）。 */
+    /** 键盘**总高度**（像素）：行高 = 总高 × 该行 h%（各页高度一致）。 */
     private var totalHeightPx: Int =
         (HeximeSettings.keyboardHeightDp(context) * resources.displayMetrics.density).toInt()
 
@@ -181,7 +181,7 @@ class KeyboardView(context: Context) : LinearLayout(context) {
         }
     }
 
-    /** 布局占位键（trime2 的 `{width = 5.2632}`：没动作没键面）——不该画出键底。 */
+    /** 布局占位键（只有 width、没动作没键面）——不该画出键底。 */
     private fun isPlaceholder(k: KeyDef): Boolean =
         k.label.isEmpty() && k.hint.isEmpty() && k.click == null && k.icon.isEmpty()
 
@@ -510,7 +510,7 @@ class KeyboardView(context: Context) : LinearLayout(context) {
                 val iconSize = (h * 0.46f).toInt().coerceAtMost(dp(28))
                 val labelView = TextView(context).apply {
                     if (k.icon.isNotEmpty()) {
-                        // trime2 的图标键面：单色 PNG 按配色染色画在上，中文小字在下
+                        // 图标键面：单色 PNG 按配色染色画在上，中文小字在下
                         setCompoundDrawables(
                             null,
                             iconDrawable(k.icon, keyTextColors(kind).defaultColor, iconSize),
@@ -567,7 +567,7 @@ class KeyboardView(context: Context) : LinearLayout(context) {
         }
     }
 
-    /** 键的种类：小鹤主题里 key / functional / enter / space 是四套样式（底色和字色都不同）。 */
+    /** 键的种类：key / functional / enter / space 四套样式（底色和字色都不同）。 */
     private enum class KeyKind { NORMAL, FUNC, ENTER, SPACE }
 
     private fun kindOf(k: KeyDef): KeyKind {
@@ -613,7 +613,7 @@ class KeyboardView(context: Context) : LinearLayout(context) {
         KeyKind.NORMAL -> palette.keyPressedText
     }
 
-    /** 键角的长按字符（trime2 也画在键角上，10sp）。 */
+    /** 键角的长按字符（画在键角上，10sp）。 */
     private fun cornerLabel(text: String, kind: KeyKind) = TextView(context).apply {
         this.text = text
         setTextSize(TypedValue.COMPLEX_UNIT_SP, 10f)
@@ -630,12 +630,12 @@ class KeyboardView(context: Context) : LinearLayout(context) {
         }
     }
 
-    /** 图标缓存：trime2 主题的单色 PNG（assets/icons/&lt;name&gt;.png），按「名字|颜色|尺寸」缓存染色结果。 */
+    /** 图标缓存：单色 PNG（assets/icons/&lt;name&gt;.png），按「名字|颜色|尺寸」缓存染色结果。 */
     private val iconCache = HashMap<String, Drawable>()
 
     /**
-     * 键面图标：读 trime2 主题的 ic_*.png，缩到键高的一半，用 SRC_IN 套上按键文字色
-     * （trime2 的 KeyStyle.getSpan 就是这么做的，12 套配色自动跟着变）。
+     * 键面图标：读 assets/icons 下的 ic_*.png，缩到键高的一半，用 SRC_IN 套上按键文字色
+     * （12 套配色自动跟着变）。
      */
     private fun iconDrawable(name: String, color: Int, sizePx: Int): Drawable? {
         val cacheKey = "$name|$color|$sizePx"
@@ -739,7 +739,7 @@ class KeyboardView(context: Context) : LinearLayout(context) {
         /** 判定滑动所需的最小位移（dp）。 */
         const val SWIPE_SLOP_DP = 16f
 
-        /** 键圆角（trime2 的 key corner_radius 约 6dp）。 */
+        /** 键圆角（约 6dp）。 */
         const val KEY_RADIUS_DP = 6
 
         const val DIR_UP = 0

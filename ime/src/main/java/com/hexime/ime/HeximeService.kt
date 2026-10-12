@@ -231,7 +231,7 @@ class HeximeService : InputMethodService() {
             onSelect = { index -> onSelectCandidate(index) }
             // 长按候选 = 加词窗口（预填该候选词）
             onLongSelect = { text -> showAddWordDialog(text) }
-            // 候选栏两端的 △/▽ 翻页（小鹤主题的 Page_Up/Page_Down）
+            // 候选栏两端的 △/▽ 翻页（Page_Up / Page_Down）
             onPage = { dir ->
                 onKeyAction(KeyAction.Named(if (dir < 0) "Page_Up" else "Page_Down"))
             }
@@ -591,11 +591,11 @@ class HeximeService : InputMethodService() {
                 engine.setOption("full_shape", fullShape)
                 flashStatus(if (fullShape) "全角" else "半角")
             }
-            // _hide_candidate / _hide_comment / _hide_key_hint：trime2 的 UI 开关，hexime 暂无对应
+            // _hide_candidate / _hide_comment / _hide_key_hint：布局里的三个 UI 开关，hexime 暂无对应
         }
     }
 
-    /** 小鹤主题的脚本类功能键（大部分是 trime2 专属，hexime 只移植了有意义的几个）。 */
+    /** 脚本类功能键（大部分是别的输入法专属能力，hexime 只实现了有意义的几个）。 */
     private fun onCommand(name: String, option: String) {
         when (name) {
             "settings" -> startActivity(
@@ -617,17 +617,17 @@ class HeximeService : InputMethodService() {
             "palette" -> showPalettePicker()
             "schema" -> applySchema(Schemas.next(engine.currentSchema()))
             "addword" -> showAddWordDialog(clipboardChineseWord().orEmpty())
-            // trime2 的 broadcast deploy：重新扫配置 + 重编词库（第一次装完/改了词库后用）
+            // 部署键（broadcast deploy）：重新扫配置 + 重编词库（第一次装完/改了词库后用）
             "deploy" -> {
                 flashStatus("正在重新部署…")
                 reloadEngine()
             }
-            // trime2 的 date：农历键传的是 zh_CN@calendar=chinese
+            // 农历键（date）：传的是 zh_CN@calendar=chinese
             "date" -> currentInputConnection?.commitText(dateText(option), 1)
-            // trime2 的 run：启动外部 App（计算器键）。hexime 有 SYSTEM_ALERT_WINDOW，
+            // 计算器键（run）：启动外部 App。hexime 有 SYSTEM_ALERT_WINDOW，
             // 所以从输入法里后台启动 Activity 不会被 Android 拦。
             "run" -> launchApp(option)
-            // web_search：trime2 专属，暂不移植
+            // web_search：暂未实现
         }
     }
 

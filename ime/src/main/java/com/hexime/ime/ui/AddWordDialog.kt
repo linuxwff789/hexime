@@ -21,7 +21,7 @@ import com.hexime.ime.data.XiaoheCode
  *
  * 窗口类型必须是 `TYPE_APPLICATION_OVERLAY`：IME 里要弹一个**可聚焦**（能输字）的窗口，
  * TYPE_APPLICATION_ATTACHED_DIALOG + IME token、TYPE_INPUT_METHOD 都会
- * `BadTokenException`（trime2 上实测过的矩阵）。需要 SYSTEM_ALERT_WINDOW 权限。
+ * `BadTokenException`（几种 window type 都实测过）。需要 SYSTEM_ALERT_WINDOW 权限。
  */
 class AddWordDialog(
     private val context: Context,

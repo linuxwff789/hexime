@@ -21,27 +21,27 @@ data class KbAction(
     val shift: Boolean = false,
 )
 
-/** 一个按键。width 是屏宽百分比（与 trime2 一致，行内求和 = 100）。 */
+/** 一个按键。width 是屏宽百分比（行内求和 = 100）。 */
 data class KeyDef(
     val width: Float,
     val label: String,
     val hint: String,
     val style: String,
-    /** 键角上要显示的长按字符（trime2 也有这个）。 */
+    /** 键角上要显示的长按字符。 */
     val longLabel: String = "",
-    /** 键面图标：trime2 主题里的单色 PNG 名（assets/icons/<icon>.png），按配色染色画在键面。 */
+    /** 键面图标：单色 PNG 名（assets/icons/<icon>.png），按配色染色画在键面。 */
     val icon: String = "",
     /** 状态类按键的第二个图标（states[1]），开关打开时用。 */
     val iconAlt: String = "",
     val click: KbAction? = null,
     val long: KbAction? = null,
-    /** 组合中按此键 = 选第 N 候选（trime2 的 composing = delimiterJ/S）。 */
+    /** 组合中按此键 = 选第 N 候选（布局里的 composing = delimiterJ/S）。 */
     val composing: KbAction? = null,
     val swipeUp: KbAction? = null,
     val swipeDown: KbAction? = null,
     val swipeLeft: KbAction? = null,
     val swipeRight: KbAction? = null,
-    /** ascii_mode 下的替身（symbols.lua 的 trime2 字段 ascii = "!"）。 */
+    /** ascii_mode 下的替身（布局里的 ascii 字段，如 ascii = "!"）。 */
     val asciiAlt: KbAction? = null,
 )
 

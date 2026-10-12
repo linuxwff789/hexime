@@ -1,5 +1,5 @@
 #!/usr/bin/env lua5.4
--- kbconvert.lua — 把小鹤主题(trime2)的键盘 lua 转成 hexime 的键盘 JSON。
+-- kbconvert.lua — 把键盘布局 lua 转成 hexime 的键盘 JSON。
 --
 -- 用法: lua5.4 tools/kbconvert.lua [src_dir] [out_dir]
 --   默认 src = /sdcard/Documents/Rime/themes/小鹤/keyboards
@@ -10,7 +10,7 @@
 --     rows: [ { h: <行高百分比>, keys: [ {w,label,hint,style,click,long,up,down,left,right,ascii} ] } ] }
 --   action = { k = "sym|key|ctrl|text|kb|toggle|cand|cmd|none", v = ..., opt = ..., mask = ... }
 --
--- 转换规则: trime2 的 preset/send 名字在转换期就归一化成上面的 k，Kotlin 只做 dispatch。
+-- 转换规则: 布局 lua 里的 preset/send 名字在转换期归一化成上面的 k，Kotlin 只做 dispatch。
 
 local SRC = arg[1] or "/sdcard/Documents/Rime/themes/小鹤/keyboards"
 local OUT = arg[2] or "ime/src/main/assets/keyboards"
@@ -61,7 +61,7 @@ end
 
 ---------------------------------------------------------------- action 归一化
 
--- trime2 的具名功能键：原样透传给引擎/服务端按 X11 keysym 或专用手势处理
+-- 具名功能键：原样透传给引擎/服务端按 X11 keysym 或专用手势处理
 local NAMED = {
   BackSpace = true, space = true, space1 = true, Return = true, Tab = true, Escape = true,
   Delete = true, Up = true, Down = true, Left = true, Right = true,
@@ -107,10 +107,10 @@ local function to_action(c)
     if c == "Keyboard_number" then return { k = "kb", v = "number" } end
     if c == "BACK" then return { k = "kb", v = "default" } end
     if c == "SETTINGS" then return { k = "cmd", v = "settings" } end
-    -- 小鹤选单的「配色」键：trime2 里是换配色的广播，hexime 里 = 循环下一个配色
+    -- 选单的「配色」键：源布局里是换配色的广播，hexime 里 = 打开配色选择条
     if c == "PROG_RED" then return { k = "cmd", v = "palette" } end
     if c == "Eisu_toggle" or c == "Mode_switch" then return { k = "toggle", v = "ascii_mode" } end
-    if c == "Menu" then return { k = "kb", v = "menu" } end -- trime2 的 Menu = rime 选单；hexime 里 = 打开选单键盘
+    if c == "Menu" then return { k = "kb", v = "menu" } end -- Menu = rime 选单；hexime 里 = 打开选单键盘
     if c == "VOICE_ASSIST" then return { k = "none" } end   -- hexime 没有语音输入（功能缺失，图标仍在）
     if c == "function" then return { k = "none" } end        -- 带 command 的 function 已在 table 分支处理
     if c == "space1" or c == "Space" then return { k = "key", v = "space" } end
@@ -142,7 +142,7 @@ local function composing_action(v)
   return nil
 end
 
--- 键面上要显示的长按字符（trime2 会把长按内容画在键角上）
+-- 键面上要显示的长按字符（画在键角上）
 local function long_label(lc)
   if lc == nil then return nil end
   local t = type(lc)
@@ -159,7 +159,7 @@ end
 local function basename(p) return (p:match("([^/]+)$") or p):gsub("%.lua$", "") end
 
 -- hexime 没实现的键：直接不生成（用户要求「没实现的开关去掉」）。
--- 按图标名匹配（trime2 的键面就是图标名），改了主题也不会漏。
+-- 按图标名匹配（布局里键面就是图标名），改了源文件也不会漏。
 local SKIP_ICON = {
   ic_hint = "提示开关(未实现)",
   ic_note = "注解开关(未实现)",
@@ -213,7 +213,7 @@ local function convert(path)
     local h = row.height or env.key_height or (100 / nrows)
 
     -- hexime 没实现的键直接不生成（用户要求「没实现的开关去掉」）。
-    -- trime2 的选单/菜单2 是等宽 5 列，删掉 1 个会留个 20% 的洞 →
+    -- 选单/菜单2 是等宽 5 列，删掉 1 个会留个 20% 的洞 →
     -- 把这一行剩下的键按比例放宽，行宽仍然凑满 100%。
     local total = 0
     for _, k in ipairs(keys0) do total = total + (k.width or env.key_width or (100 / #keys0)) end
@@ -227,7 +227,7 @@ local function convert(path)
          and ct.states[1]:match("^ic_") then
         ico = ct.states[1]
       end
-      -- 行首/行尾的纯占位（trime2 拿来错位用的 width-only 空键，例如 a 前面那个）。
+      -- 行首/行尾的纯占位（拿来错位用的 width-only 空键，例如 a 前面那个）。
       -- 用户要求：不要留空白，把这一行的键加宽铺满。行内的占位保留（布局需要）。
       -- 注意：必须「什么动作都没有」才算占位 —— 字母键是 click = "q"（字符串），
       -- 只看 click 是不是 table 会把整行字母当占位删掉。
@@ -281,7 +281,7 @@ local function convert(path)
         if plain == "" then plain = act.v end
         label = utf8_trunc(plain, 4)
       end
-      -- trime2 的图标键面(ic_xxx) 已转成 icon 字段（上面），键面文字留空
+      -- 图标键面(ic_xxx) 已转成 icon 字段（上面），键面文字留空
 
       local icon, iconAlt = nil, nil
       if label and label:match("^ic_") then
@@ -310,7 +310,7 @@ local function convert(path)
         ascii = to_action(k.ascii),
         -- composing = "delimiterJ/S": 组合中按它 = 选第 2/3 候选(不是覆盖 click)
         composing = k.composing and composing_action(k.composing) or nil,
-        -- 键角上显示的长按字符（trime2 有，hexime 也画出来）
+        -- 键角上显示的长按字符（从源布局带过来，hexime 也画出来）
         longLabel = long_label(k.long_click) or "",
       }
       if k.style then o.style = k.style end
@@ -334,8 +334,8 @@ local function convert(path)
         o.longLabel = "⇪"
       end
 
-      -- hexime 扩展：trime2 选单里的「语音」键（ic_mic / k=none），hexime 没有语音输入，
-      -- 把这个位置改成「方案」——点一下循环切 openfly / luna_pinyin 等（trime2 的方案在主选单里没有）。
+      -- hexime 扩展：选单里那个「语音」键（ic_mic / k=none）hexime 没有语音输入，
+      -- 把这个位置改成「方案」——点一下循环切各输入方案。
       if o.icon == "ic_mic" then
         o.icon = "ic_keyboard"
         o.hint = "方案"
@@ -344,7 +344,7 @@ local function convert(path)
       end
       out.keys[#out.keys + 1] = o
     end
-    -- 凑不满 100% 的行按比例铺满（trime2 有些页面故意留几个点的缺口，看起来就是个豁口）
+    -- 凑不满 100% 的行按比例铺满（有些页面故意留几个点的缺口，看起来就是个豁口）
     if sum > 0 and math.abs(sum - 100) > 0.05 then
       local k100 = 100 / sum
       for _, o in ipairs(out.keys) do o.w = o.w * k100 end

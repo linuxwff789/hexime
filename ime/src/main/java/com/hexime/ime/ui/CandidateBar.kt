@@ -12,7 +12,7 @@ import com.hexime.ime.engine.Candidate
 /**
  * 候选栏：`[△] 一行横向可滚动候选 [▽]`，点击选词，两端是翻页键。
  *
- * 翻页键是照小鹤主题来的：`styles/.../main.lua` 里定义了
+ * 翻页键：配色里定义了
  * `Page_Down = {label = "▽", send = "Page_Down"}` / `Page_Up = {label = "△", ...}`，
  * openfly 的 key_binder 也显式接住了这两个键（本方案没 import default 预设，
  * 不自己绑的话 `-`/`=` 那套翻页不生效）。候选超过一页时才显示。
