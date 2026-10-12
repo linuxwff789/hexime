@@ -44,6 +44,7 @@ object GithubSync {
 
     private fun extras(): List<Extra> = listOf(
         Extra("rime/flypy.schema.yaml", "flypy.schema.yaml", alsoShared = true),
+        Extra("rime/flypydz.schema.yaml", "flypydz.schema.yaml", alsoShared = true),
         Extra("rime/flypydz.dict.yaml", "flypydz.dict.yaml", alsoShared = true),
         Extra("rime/flypy_top.txt", "flypy_top.txt"),
         Extra("rime/flypy_sys.txt", "flypy_sys.txt"),
