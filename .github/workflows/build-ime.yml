@@ -95,3 +95,8 @@ jobs:
             或者 `adb install -r hexime-ime.apk`。
           files: ime/build/outputs/apk/release/*.apk
           generate_release_notes: false
+          # 显式声明：一定要发成「已发布」，不能留成 draft
+          # （之前查过一次：tag 都建出来了、Release 对象却是空的，公开下载全 404）
+          draft: false
+          prerelease: false
+          make_latest: true
