@@ -490,18 +490,20 @@ class HeximeService : InputMethodService() {
         if (!ready || !engine.hasSession()) return
         val from = engine.currentSchema()
         if (from == id) return
-        if (!engine.selectSchema(id)) {
-            flashStatus("切不了方案：${Schemas.label(id)}")
-            return
-        }
+        // 不在这里 selectSchema：那样两个方案的码表会同时驻留内存（librime 的 SchemaMap 缓存，
+        // 没有卸载接口）。改成**重启引擎只开目标方案** —— create_session() 是按 schema_list[0]
+        // （我们的 default.yaml 第一个就是 openfly）开的，所以：
+        //   切到 luna  → create_session 开 openfly + select luna，两个都在（API 限制，绕不开）
+        //   切回小鹤  → create_session 开 openfly + select openfly 是空操作，**只剩小鹤**，
+        //              luna 那几 MB 就还回去了（这就是"不用的时候不加载"）
+        // 代价：切方案要等一次引擎重启（几百 ms，键盘上闪一下"重载中"）。
+        keyboardView?.currentKeyboardId()?.let { keyboardPerSchema[from] = it }
         // 键盘按方案各记一份，切回来就还原。
         // **不要**硬塞某个键盘（原来切回音形强制 defaultVJ，键面是 丶丨 这类字根，
         // 用户看到的就是「切回小鹤键盘变成笔画了」）。
-        keyboardView?.currentKeyboardId()?.let { keyboardPerSchema[from] = it }
         keyboardPerSchema[id]?.let { keyboardView?.showKeyboard(it) }
-        flashStatus("方案：${Schemas.label(id)}")
-        updateStatus()
-        refresh()
+        flashStatus("方案：${Schemas.label(id)}（重载中…）")
+        reloadEngine()
     }
 
     /** 中/英切换：空格长按、选单的中英键、顶栏状态标识都走这里。 */
