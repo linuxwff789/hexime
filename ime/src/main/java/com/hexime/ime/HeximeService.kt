@@ -64,7 +64,7 @@ class HeximeService : InputMethodService() {
     private var lastStatusText = ""
     private var lastStatusSchema = ""
     private var lastStatusAscii = false
-    private var lastStatusLatency = 0f
+    private var lastStatusLatency = 0.0
 
     /** 中/英状态标识（点一下切换）。 */
     private var modeView: TextView? = null
@@ -771,7 +771,7 @@ class HeximeService : InputMethodService() {
         // 按键热路径上每次都调：先比「输入」，没变就直接返回 —— 连 buildString / String.format
         // 的分配都省掉（原来每次都拼一遍字符串再比）
         val schema = engine.currentSchema()
-        val latency = if (latencyOn) latencyMs else 0f
+        val latency = if (latencyOn) latencyMs else 0.0
         if (schema == lastStatusSchema && asciiMode == lastStatusAscii && latency == lastStatusLatency) {
             return
         }
