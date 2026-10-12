@@ -11,9 +11,10 @@ import java.net.URL
 /**
  * App 内直连 GitHub API 的同步（不依赖 root、不装额外东西）。
  *
- * 同步两个文件到私有仓库：
+ * 同步到私有仓库：
  *   custom_phrase.txt      自定义词表
  *   hexime_settings.xml    设置（配色/高度/方案/震动/跟手延迟）
+ *   额外方案的文件          见 [EXTRA]，不随 APK 分发（官方词库闭源），靠这里备份/换机还原
  *
  * **本地优先**：云端内容只在本机「还没拉过」时自动应用一次；
  * 平时改动只往上推，想用云端覆盖本机得手动点「下载」。
@@ -27,6 +28,34 @@ object GithubSync {
     private const val BRANCH = "main"
     private const val PHRASE = "custom_phrase.txt"
     private const val SETTINGS = "hexime_settings.xml"
+
+    /**
+     * 额外方案（「小鹤官方」）的文件清单。
+     *
+     * 这些文件**不进 APK**：官方词库是闭源的，放公开仓库/Release 就成了对外分发。
+     * 做法是：使用者自己下载官方包 → 本机铺一次 → 由这里同步到**私有**备份仓库，
+     * 换设备或重装时点一次「下载」就能在本地还原。
+     *
+     * @param repoPath   仓库里的路径
+     * @param localPath  相对 user/ 的本地路径（build/ 开头的落到 user/build/）
+     * @param alsoShared 同时再写一份到 shared/（部署器只从 staging=shared 读依赖方案源码）
+     */
+    private data class Extra(val repoPath: String, val localPath: String, val alsoShared: Boolean = false)
+
+    private fun extras(): List<Extra> = listOf(
+        Extra("rime/flypy.schema.yaml", "flypy.schema.yaml", alsoShared = true),
+        Extra("rime/flypydz.dict.yaml", "flypydz.dict.yaml", alsoShared = true),
+        Extra("rime/flypy_top.txt", "flypy_top.txt"),
+        Extra("rime/flypy_sys.txt", "flypy_sys.txt"),
+        Extra("rime/flypy_user.txt", "flypy_user.txt"),
+        Extra("rime/flypy_full.txt", "flypy_full.txt"),
+        Extra("rime/rime.lua", "rime.lua", alsoShared = true),
+        Extra("rime/calculator_translator.lua", "lua/calculator_translator.lua", alsoShared = true),
+        Extra("rime/default.custom.yaml", "default.custom.yaml", alsoShared = true),
+        Extra("rime/build/flypy.table.bin", "build/flypy.table.bin"),
+        Extra("rime/build/flypy.prism.bin", "build/flypy.prism.bin"),
+        Extra("rime/build/flypy.reverse.bin", "build/flypy.reverse.bin"),
+    )
 
     /** 同步结果（给 UI 显示）。 */
     data class Result(val ok: Boolean, val message: String)
@@ -51,8 +80,14 @@ object GithubSync {
         }
         val files = localFiles(context)
         return try {
+            var skipped = 0
             for ((path, bytes) in files) {
                 val sha = remoteSha(repo, token, path)
+                // 内容没变就别重传：额外方案里有个 3.58MB 的表，每次同步都推一遍太浪费
+                if (sha != null && sha == gitBlobSha(bytes)) {
+                    skipped++
+                    continue
+                }
                 val body = JSONObject()
                     .put("message", "hexime 同步 ${stamp()}：$path")
                     .put("content", Base64.encodeToString(bytes, Base64.NO_WRAP))
@@ -63,7 +98,7 @@ object GithubSync {
                     return Result(false, "上传 $path 失败：HTTP $code ${errOf(text)}")
                 }
             }
-            val msg = "已上传 ${files.size} 个文件 → $repo（${stamp()}）"
+            val msg = "已上传 ${files.size - skipped} 个文件（${skipped} 个无变化）→ $repo（${stamp()}）"
             Log.i(TAG, msg)
             Result(true, msg)
         } catch (t: Throwable) {
@@ -98,9 +133,21 @@ object GithubSync {
                 applySettingsXml(context, String(settings, Charsets.UTF_8))
                 got++
             }
-            if (got == 0) return Result(false, "远端没有这两个文件（先上传一次？）")
+            // 额外方案：拉回来按部署器要求分别落 user/ 和 shared/，拉到了就得重新部署才会生效
+            var extraGot = 0
+            val user = RimeDataInstaller.userDir(context)
+            val shared = RimeDataInstaller.sharedDir(context)
+            for (e in extras()) {
+                val data = remoteFile(repo, token, e.repoPath) ?: continue
+                writeInto(File(user, e.localPath), data)
+                if (e.alsoShared) writeInto(File(shared, e.localPath), data)
+                extraGot++
+            }
+            if (extraGot > 0) SyncPrefs.markPhraseReload(context)
+            if (got == 0 && extraGot == 0) return Result(false, "远端没有可下载的文件（先上传一次？）")
             SyncPrefs.markFirstPullDone(context)
-            Result(true, "已下载 $got 个文件（词表取并集，${stamp()}）")
+            val extraNote = if (extraGot > 0) "；额外方案 $extraGot 个文件（下次弹键盘自动部署）" else ""
+            Result(true, "已下载 $got 个文件（词表取并集，${stamp()}）$extraNote")
         } catch (t: Throwable) {
             Log.e(TAG, "download failed", t)
             Result(false, "下载失败：${t.message}")
@@ -130,11 +177,29 @@ object GithubSync {
     /** 要同步的本地文件：路径 → 内容。 */
     private fun localFiles(context: Context): List<Pair<String, ByteArray>> {
         val out = ArrayList<Pair<String, ByteArray>>()
-        val phrase = File(RimeDataInstaller.userDir(context), PHRASE)
+        val user = RimeDataInstaller.userDir(context)
+        val phrase = File(user, PHRASE)
         if (phrase.isFile) out.add(PHRASE to phrase.readBytes())
         val prefs = File(context.filesDir.parentFile, "shared_prefs/$SETTINGS")
         if (prefs.isFile) out.add(SETTINGS to prefs.readBytes())
+        // 额外方案：本机铺过才有，没铺的（比如刚装好）就不推
+        for (e in extras()) {
+            val f = File(user, e.localPath)
+            if (f.isFile) out.add(e.repoPath to f.readBytes())
+        }
         return out
+    }
+
+    /** 本地内容的 git blob sha —— GitHub contents API 返回的 sha 就是它，用来判断要不要重传。 */
+    private fun gitBlobSha(bytes: ByteArray): String {
+        val md = java.security.MessageDigest.getInstance("SHA-1")
+        md.update("blob ${bytes.size}\u0000".toByteArray(Charsets.UTF_8))
+        return md.digest(bytes).joinToString("") { "%02x".format(it) }
+    }
+
+    private fun writeInto(dst: File, data: ByteArray) {
+        dst.parentFile?.mkdirs()
+        dst.writeBytes(data)
     }
 
     private fun remoteSha(repo: String, token: String, path: String): String? {
