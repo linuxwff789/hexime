@@ -75,16 +75,17 @@ jobs:
           name: hexime-ime-apk
           path: ime/build/outputs/apk/release/*.apk
           if-no-files-found: error
+          retention-days: 7
 
-      # 只在推 v* tag 时发 Release（平时 main 的每次 push 只编译 + 传 artifact，
-      # 否则一晚上攒出一堆 ime-<run_number> 的滚动包，用户得手动删）。
+      # main 每次编译完都发 Release —— 目的是「手机上直接点链接就能下最新包」，
+      # 所以宁可多发也不要不发，发完由下面的 Cleanup 步骤滚动清理（只留最近 6 个）。
       # 签名固定 → Releases 里的包可以直接覆盖升级。
       - name: Publish to Release
-        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref_name }}
-          name: hexime ${{ github.ref_name }}
+          tag_name: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || format('ime-{0}', github.run_number) }}
+          name: ${{ startsWith(github.ref, 'refs/tags/v') && format('hexime {0}', github.ref_name) || format('hexime ime-{0}', github.run_number) }}
           body: |
             自动构建 · commit `${{ github.sha }}` · run #${{ github.run_number }}
 
@@ -101,3 +102,23 @@ jobs:
           draft: false
           prerelease: false
           make_latest: true
+
+      # 滚动清理：只留最近 6 个 Release（连同 tag 一起删）。
+      # 每次编译都发 release 是为了「随时能点链接下最新包」，但攒多了列表就没法看了。
+      - name: Cleanup old releases
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          KEEP=6
+          # gh release list 默认按创建时间倒序
+          mapfile -t TAGS < <(gh release list --repo "$GITHUB_REPOSITORY" --limit 100 --json tagName             --jq '.[].tagName')
+          echo "现有 release: ${#TAGS[@]} 个，保留最近 $KEEP 个"
+          if [ "${#TAGS[@]}" -le "$KEEP" ]; then
+            echo "无需清理"
+            exit 0
+          fi
+          for t in "${TAGS[@]:$KEEP}"; do
+            echo "  删除 $t"
+            gh release delete "$t" --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag || true
+          done
