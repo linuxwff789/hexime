@@ -17,9 +17,6 @@ object SyncPrefs {
     private const val KEY_RELOAD = "phrase_reload_needed"
     private const val KEY_PULLED = "first_pull_done"
 
-    /** 默认仓库：owner/name（和 Termux 那个备份脚本同一个）。 */
-    const val DEFAULT_REPO = "linuxwff789/hexime-backup"
-
     private fun prefs(context: Context) =
         context.getSharedPreferences(PREF, Context.MODE_PRIVATE)
 
@@ -29,8 +26,9 @@ object SyncPrefs {
         prefs(context).edit().putString(KEY_TOKEN, value.trim()).apply()
     }
 
+    /** 仓库：`owner/name`；只填名字也行（GithubSync 会用 token 的账号补 owner）。 */
     fun repo(context: Context): String =
-        prefs(context).getString(KEY_REPO, null)?.takeIf { it.isNotBlank() } ?: DEFAULT_REPO
+        prefs(context).getString(KEY_REPO, "").orEmpty().trim()
 
     fun setRepo(context: Context, value: String) {
         prefs(context).edit().putString(KEY_REPO, value.trim().removePrefix("https://github.com/").trim('/')).apply()

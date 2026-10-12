@@ -31,7 +31,12 @@ object GithubSync {
 
     /** 上传：本地 → GitHub。 */
     fun upload(context: Context): Result {
-        val (repo, token) = creds(context) ?: return Result(false, "还没填 token")
+        val (repoRaw, token) = creds(context) ?: return Result(false, "还没填 token / 仓库")
+        val repo = try {
+            resolveRepo(repoRaw, token)
+        } catch (t: Throwable) {
+            return Result(false, "仓库解析失败：${t.message}")
+        }
         // 词表先和远端做并集再推：词表是只增的数据，整份覆盖会把云端已有的词冲掉
         val phraseFile = File(RimeDataInstaller.userDir(context), "custom_phrase.txt")
         if (phraseFile.isFile) {
@@ -100,7 +105,19 @@ object GithubSync {
     private fun creds(context: Context): Pair<String, String>? {
         val token = SyncPrefs.token(context)
         if (token.isBlank()) return null
-        return SyncPrefs.repo(context) to token
+        val repo = SyncPrefs.repo(context)
+        if (repo.isBlank()) return null
+        return repo to token
+    }
+
+    /** 仓库只填了名字（没有 owner/）→ 用 token 的账号补上。 */
+    private fun resolveRepo(repo: String, token: String): String {
+        if (repo.contains('/')) return repo
+        val (code, text) = request("GET", "$API/user", token, null)
+        if (code !in 200..299) throw IllegalStateException("拿不到 token 对应的账号（HTTP $code）")
+        val login = JSONObject(text).optString("login")
+        if (login.isEmpty()) throw IllegalStateException("token 信息里没有 login")
+        return "$login/$repo"
     }
 
     /** 要同步的本地文件：路径 → 内容。 */

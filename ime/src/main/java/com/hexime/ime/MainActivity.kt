@@ -282,7 +282,7 @@ class MainActivity : Activity() {
             box.addView(tokenView)
 
             val repoView = EditText(this).apply {
-                hint = "仓库 owner/name"
+                hint = "仓库：owner/name（只填仓库名也行，会用 token 的账号补上）"
                 setText(SyncPrefs.repo(this@MainActivity))
                 textSize = 14f
                 inputType = InputType.TYPE_CLASS_TEXT
