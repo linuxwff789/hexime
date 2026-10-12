@@ -59,6 +59,9 @@ class MainActivity : Activity() {
     private lateinit var heightSeek: SeekBar
     private lateinit var vibSeek: SeekBar
     private lateinit var latencySwitch: Switch
+
+    /** 本页改过设置（离开时自动推一次；不推的话下次自动拉会把本机改动冲掉）。 */
+    private var settingsDirty = false
     private val io = Executors.newSingleThreadExecutor()
     private val main = Handler(Looper.getMainLooper())
 
@@ -74,6 +77,24 @@ class MainActivity : Activity() {
         val onSurfaceVariant: Int,
         val outline: Int,
     )
+
+    override fun onStop() {
+        super.onStop()
+        // 离开设置页时把本机改动推上去：不然下次「打开自动拉」会把刚改的配色/高度冲回旧值
+        if (settingsDirty && SyncPrefs.token(this).isNotBlank()) {
+            settingsDirty = false
+            io.execute {
+                val r = runCatching { GithubSync.upload(this) }
+                    .getOrElse { GithubSync.Result(false, "异常：${it.message}") }
+                main.post {
+                    SyncPrefs.setLastSync(
+                        this,
+                        "${if (r.ok) "离开时自动上传" else "自动上传失败"}：${r.message}",
+                    )
+                }
+            }
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -131,6 +152,7 @@ class MainActivity : Activity() {
                 onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
                     override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
                         HeximeSettings.setSchemaId(this@MainActivity, schemaIds[position].first)
+                        settingsDirty = true
                     }
 
                     override fun onNothingSelected(parent: AdapterView<*>?) {}
@@ -155,6 +177,7 @@ class MainActivity : Activity() {
                 onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
                     override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
                         HeximeSettings.setPaletteId(this@MainActivity, palettes[position].id)
+                        settingsDirty = true
                     }
 
                     override fun onNothingSelected(parent: AdapterView<*>?) {}
@@ -180,6 +203,7 @@ class MainActivity : Activity() {
                         this@MainActivity,
                         value + HeximeSettings.KEYBOARD_HEIGHT_MIN,
                     )
+                    if (fromUser) settingsDirty = true
                     updateHeightLabel(value)
                 }
             })
@@ -203,6 +227,7 @@ class MainActivity : Activity() {
             vibSeek.setOnSeekBarChangeListener(object : SimpleSeek() {
                 override fun onProgressChanged(sb: SeekBar?, value: Int, fromUser: Boolean) {
                     HeximeSettings.setVibrationPercent(this@MainActivity, value)
+                    if (fromUser) settingsDirty = true
                     updateVibLabel(value)
                     if (fromUser) previewVibration(value)
                 }
@@ -221,7 +246,10 @@ class MainActivity : Activity() {
                     "显示「跟手延迟」",
                     "按键到下一帧的耗时，调优指标；默认关（开着每键多一次 Choreographer 回调）",
                     latencySwitch,
-                ) { checked -> HeximeSettings.setShowLatency(this@MainActivity, checked) },
+                ) { checked ->
+                    HeximeSettings.setShowLatency(this@MainActivity, checked)
+                    settingsDirty = true
+                },
             )
         })
 
