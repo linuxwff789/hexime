@@ -166,7 +166,7 @@ class HeximeService : InputMethodService() {
         // 中/英 状态标识：点一下切换（和空格长按同一个开关）
         val modeChip = TextView(this).apply {
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
-            setPadding(dp(10), dp(4), dp(10), dp(4))
+            setPadding(dp(10), dp(1), dp(10), dp(1))
             gravity = Gravity.CENTER
             isClickable = true
             setOnClickListener { toggleAsciiMode() }
@@ -175,14 +175,14 @@ class HeximeService : InputMethodService() {
         val code = TextView(this).apply {
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
             setTextColor(palette.candidateText)
-            setPadding(dp(10), dp(4), dp(10), dp(4))
+            setPadding(dp(10), dp(1), dp(10), dp(1))
             maxLines = 1
         }
         codeView = code
         val status = TextView(this).apply {
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
             setTextColor(palette.candidateComment)
-            setPadding(dp(10), dp(4), dp(10), dp(4))
+            setPadding(dp(10), dp(1), dp(10), dp(1))
             gravity = Gravity.END
             // 点状态栏切换跟手延迟显示
             isClickable = true
@@ -199,7 +199,7 @@ class HeximeService : InputMethodService() {
             text = "＋词"
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
             setTextColor(palette.candidateText)
-            setPadding(dp(12), dp(4), dp(12), dp(4))
+            setPadding(dp(12), dp(1), dp(12), dp(1))
             isClickable = true
             setOnClickListener { showAddWordDialog(clipboardChineseWord().orEmpty()) }
         }
@@ -209,7 +209,7 @@ class HeximeService : InputMethodService() {
             text = "配色"
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
             setTextColor(palette.candidateText)
-            setPadding(dp(12), dp(4), dp(12), dp(4))
+            setPadding(dp(12), dp(1), dp(12), dp(1))
             isClickable = true
             setOnClickListener { showPalettePicker() }
         }

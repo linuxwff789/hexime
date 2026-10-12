@@ -26,7 +26,7 @@ class CandidateBar(context: Context) : LinearLayout(context) {
     private val row = LinearLayout(context).apply {
         orientation = LinearLayout.HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL
-        minimumHeight = dp(46)
+        minimumHeight = dp(30)
     }
 
     private val scroll = HorizontalScrollView(context).apply {
@@ -111,7 +111,7 @@ class CandidateBar(context: Context) : LinearLayout(context) {
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
                 setTextColor(p.candidateText)
                 setBackgroundColor(p.candidateBg)
-                setPadding(dp(12), dp(6), dp(12), dp(6))
+                setPadding(dp(12), dp(1), dp(12), dp(1))
                 gravity = Gravity.CENTER
                 isClickable = true
                 setOnClickListener { pickerCallback?.invoke(index) }
@@ -149,7 +149,7 @@ class CandidateBar(context: Context) : LinearLayout(context) {
             val tv = TextView(context).apply {
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 20f)
                 setTextColor(palette.candidateText)
-                setPadding(dp(14), dp(6), dp(14), dp(6))
+                setPadding(dp(14), dp(1), dp(14), dp(1))
                 gravity = Gravity.CENTER
                 isClickable = true
                 isLongClickable = true

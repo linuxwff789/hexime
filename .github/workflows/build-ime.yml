@@ -4,18 +4,9 @@ on:
   workflow_dispatch:
   push:
     branches: [main, master]
-    paths:
-      - 'ime/**'
-      - 'scripts/**'
-      - '.github/workflows/build-ime.yml'
     tags:
-      - 'ime-*'
       - 'v*'
   pull_request:
-    paths:
-      - 'ime/**'
-      - 'scripts/**'
-      - '.github/workflows/build-ime.yml'
 
 permissions:
   contents: write

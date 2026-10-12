@@ -181,11 +181,15 @@ class KeyboardView(context: Context) : LinearLayout(context) {
         }
     }
 
+    /** 布局占位键（trime2 的 `{width = 5.2632}`：没动作没键面）——不该画出键底。 */
+    private fun isPlaceholder(k: KeyDef): Boolean =
+        k.label.isEmpty() && k.hint.isEmpty() && k.click == null && k.icon.isEmpty()
+
     /** 只把新配色的颜色刷到已有视图上（背景 + 主字/小字色 + 键角字色）。 */
     private fun repaint() {
         keys.forEach { key ->
             val kind = key.kind
-            key.view.background = keyBackground(kind)
+            key.view.background = if (isPlaceholder(key.k)) null else keyBackground(kind)
             key.labelView.setTextColor(keyTextColors(kind))
             // 小字/角标色是烤进 Spannable 的，所以要重新设一次文字
             key.labelView.text = face(key.k.label, key.k.hint, key.k.style, shift, faceSymbol(kind))
@@ -491,8 +495,7 @@ class KeyboardView(context: Context) : LinearLayout(context) {
             // 行高 = 键盘总高 × 该行 h%（小鹤的 h% 每页加起来都是 100，所以各页总高一致）
             val h = (totalHeightPx * row.heightPercent / 100f).toInt().coerceAtLeast(dp(16))
             for (k in row.keys) {
-                val placeholder = k.label.isEmpty() && k.hint.isEmpty() && k.click == null &&
-                    k.icon.isEmpty()
+                val placeholder = isPlaceholder(k)
                 val kind = kindOf(k)
                 val iconSize = (h * 0.46f).toInt().coerceAtMost(dp(28))
                 val labelView = TextView(context).apply {
