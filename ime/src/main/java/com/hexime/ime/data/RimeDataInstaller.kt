@@ -38,18 +38,41 @@ object RimeDataInstaller {
     /** 确保数据已释放，返回 shared 目录。可能较慢，应在后台线程调用。 */
     fun ensureInstalled(context: Context): File {
         val shared = sharedDir(context)
+        val user = userDir(context)
         val marker = File(context.filesDir, "rime/.data_version")
         val installed = marker.takeIf { it.exists() }?.readText()?.trim()?.toIntOrNull() ?: -1
         if (installed == DATA_VERSION && shared.listFiles()?.isNotEmpty() == true) {
+            ensureUserLuaDb(shared, user)
             return shared
         }
         Log.i(TAG, "installing rime data (version $installed -> $DATA_VERSION)")
         shared.deleteRecursively()
         mkdirsOrThrow(shared)
         copyAssets(context, "rime", shared)
+        // 顺手清掉上一版部署编出来的表（user/build 里可能留着已经删掉的方案，比如原来 luna/stroke 的
+        // 十几 MB）。这里全是可再生的编译产物，清掉不会丢用户词库/自定义短语（那些在 user/*.txt、*.userdb）。
+        File(user, "build").deleteRecursively()
+        ensureUserLuaDb(shared, user)
         mkdirsOrThrow(marker.parentFile)
         marker.writeText(DATA_VERSION.toString())
         return shared
+    }
+
+    /**
+     * 雾凇拼音的 lua/lunar.lua 用相对路径 `ReverseDb('lua/lunar.db')` 找库，而 librime 是按
+     * **user 目录** 解析相对路径的（桌面版把整个配置目录当 user dir，所以直接放 lua/ 下没问题）。
+     * 不复制的话每次按键都会刷 `Error opening reversedb .../user/lua/lunar.db`，农历也就用不了。
+     */
+    private fun ensureUserLuaDb(shared: File, user: File) {
+        val src = File(shared, "lua/lunar.db")
+        if (!src.isFile) return
+        val dest = File(user, "lua/lunar.db")
+        if (dest.isFile && dest.length() == src.length()) return
+        runCatching {
+            mkdirsOrThrow(dest.parentFile)
+            src.copyTo(dest, overwrite = true)
+            Log.i(TAG, "copied lunar.db -> ${dest.absolutePath}")
+        }.onFailure { Log.w(TAG, "copy lunar.db failed: ${it.message}") }
     }
 
     private fun copyAssets(context: Context, assetDir: String, dest: File) {
