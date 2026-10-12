@@ -25,8 +25,8 @@ class MainActivity : Activity() {
 
     private val cases = listOf(
         SchemaCase(
-            id = "luna_pinyin",
-            label = "拼音 luna_pinyin",
+            id = "rime_ice",
+            label = "雾凇拼音 rime_ice",
             sequences = listOf(
                 "ni", "nihao", "zhongguo", "shurufa",
                 "woshiyigexiaohuozi", "jintiantianqizenmeyang",

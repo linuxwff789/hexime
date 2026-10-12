@@ -327,6 +327,13 @@ local function convert(path)
         o.longLabel = "`"
       end
 
+      -- hexime 扩展：Shift 长按 = 按住（锁定 shift），再点/再长按解除。
+      -- 小鹤原来的 Shift 只绑了 点击 + 上滑全选，长按空着，这里补上。
+      if o.click and o.click.k == "key" and o.click.v == "Shift_L" then
+        o.long = { k = "key", v = "Shift_Lock" }
+        o.longLabel = "⇪"
+      end
+
       -- hexime 扩展：trime2 选单里的「语音」键（ic_mic / k=none），hexime 没有语音输入，
       -- 把这个位置改成「方案」——点一下循环切 openfly / luna_pinyin 等（trime2 的方案在主选单里没有）。
       if o.icon == "ic_mic" then

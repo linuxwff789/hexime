@@ -21,7 +21,7 @@ RIME (librime) 在 Android 真机上的性能基准 App。**独立于正式输�
 
 1. `scripts/prepare-native.sh` 从 `osfans/trime@v3.3.12` 拉取并组装 librime 及其依赖
    （librime / OpenCC / snappy / glog / leveldb / marisa-trie / yaml-cpp / boost / 插件）。
-2. `scripts/stage-rime-data.sh` 下载 RIME 方案数据（prelude + luna-pinyin）到 `assets/rime`。
+2. `scripts/stage-rime-data.sh` 下载 RIME 方案数据（prelude + openfly + rime-ice）到 `assets/rime`。
 3. Gradle + NDK 编译 `libhexime_bench.so` 并打包 APK。
 4. tag 时发布到 Release，真机下载安装。
 

@@ -94,6 +94,8 @@ class HeximeService : InputMethodService() {
 
 
     private var shiftOn = false
+    /** 长按 Shift 锁定的（一直保持 shift，直到再点一次）。 */
+    private var shiftLock = false
     private var asciiMode = false
 
     /** 是否正在组合（决定组合结束时用 finishComposingText 收尾）。 */
@@ -355,7 +357,14 @@ class HeximeService : InputMethodService() {
                 val handled = engine.processKey(action.keySym, action.mask)
                 // 引擎未处理且是可打印 ASCII，则直接上屏（数字/符号/英文）
                 if (!handled && action.keySym in 0x20..0x7E) {
-                    currentInputConnection?.commitText(action.keySym.toChar().toString(), 1)
+                    // 引擎没接（ascii/数字）就自己上屏；带 shift 时字母要大写
+                    val ch = action.keySym.toChar()
+                    val text = if (action.mask and InputEngine.MASK_SHIFT != 0) {
+                        ch.uppercaseChar().toString()
+                    } else {
+                        ch.toString()
+                    }
+                    currentInputConnection?.commitText(text, 1)
                 }
             }
             is KeyAction.Named -> onNamedKey(action.name)
@@ -375,7 +384,8 @@ class HeximeService : InputMethodService() {
             is KeyAction.Cmd -> onCommand(action.name, action.option)
             KeyAction.None -> Unit
         }
-        if (action is KeyAction.Sym && shiftOn) {
+        // 一次性 shift 用完就撤；长按锁定的不动
+        if (action is KeyAction.Sym && shiftOn && !shiftLock) {
             shiftOn = false
             keyboardView?.setShift(false)
         }
@@ -398,7 +408,20 @@ class HeximeService : InputMethodService() {
     private fun onNamedKey(name: String) {
         when (name) {
             "Shift_L", "Shift_R" -> {
-                shiftOn = !shiftOn
+                // 点一下 = 一次性 shift（输入一个字符后自动消）；锁定中再点 = 解锁
+                if (shiftLock) {
+                    shiftLock = false
+                    shiftOn = false
+                } else {
+                    shiftOn = !shiftOn
+                }
+                keyboardView?.setShift(shiftOn)
+                return
+            }
+            // 长按 Shift = 按住（锁定），再点/再长按一次解除
+            "Shift_Lock" -> {
+                shiftLock = !shiftLock
+                shiftOn = shiftLock
                 keyboardView?.setShift(shiftOn)
                 return
             }
@@ -506,9 +529,9 @@ class HeximeService : InputMethodService() {
         // 不在这里 selectSchema：那样两个方案的码表会同时驻留内存（librime 的 SchemaMap 缓存，
         // 没有卸载接口）。改成**重启引擎只开目标方案** —— create_session() 是按 schema_list[0]
         // （我们的 default.yaml 第一个就是 openfly）开的，所以：
-        //   切到 luna  → create_session 开 openfly + select luna，两个都在（API 限制，绕不开）
+        //   切到拼音方案（雾凇）→ create_session 开 openfly + select rime_ice，两个都在（API 限制，绕不开）
         //   切回小鹤  → create_session 开 openfly + select openfly 是空操作，**只剩小鹤**，
-        //              luna 那几 MB 就还回去了（这就是"不用的时候不加载"）
+        //              拼音方案那几 MB 就还回去了（这就是"不用的时候不加载"）
         // 代价：切方案要等一次引擎重启（几百 ms，键盘上闪一下"重载中"）。
         keyboardView?.currentKeyboardId()?.let { keyboardPerSchema[from] = it }
         // 键盘按方案各记一份，切回来就还原。
@@ -542,9 +565,13 @@ class HeximeService : InputMethodService() {
         when (option) {
             "ascii_mode" -> toggleAsciiMode()
             "simplification" -> {
+                // 两个方案的开关名和语义都不一样：
+                //   openfly 小鹤 → simplification（true = 简体）
+                //   雾凇拼音     → traditionalization（true = 繁体）
+                val trad = engine.currentSchema() == "rime_ice"
                 simplified = !simplified
-                engine.setOption("simplification", simplified)
-                flashStatus(if (simplified) "简体" else "繁体")
+                engine.setOption(if (trad) "traditionalization" else "simplification", simplified)
+                flashStatus(if (trad) (if (simplified) "繁体" else "简体") else (if (simplified) "简体" else "繁体"))
             }
             "full_shape" -> {
                 fullShape = !fullShape

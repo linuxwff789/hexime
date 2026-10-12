@@ -99,11 +99,11 @@ class KeyboardView(context: Context) : LinearLayout(context) {
         val kind: KeyKind,
         /** 键角的长按字符视图（换配色时单独上色）。 */
         val cornerView: TextView? = null,
-        val click: KeyAction,
-        val long: KeyAction?,
-        val composing: KeyAction?,
-        val up: KeyAction?,
-        val down: KeyAction?,
+        var click: KeyAction,
+        var long: KeyAction?,
+        var composing: KeyAction?,
+        var up: KeyAction?,
+        var down: KeyAction?,
         val left: KeyAction?,
         val right: KeyAction?,
     ) {
@@ -228,11 +228,21 @@ class KeyboardView(context: Context) : LinearLayout(context) {
         build()
     }
 
+    /** shift 开/关。键面文字和大写要一起重算 —— 动作里的 SHIFT 掩码是 toAction() 在
+     *  这里算进去的，只刷文字的话键面变大写了、发出去的按键却没带 shift（用户报「shift 不起作用」）。 */
     fun setShift(on: Boolean) {
         if (shift == on) return
         shift = on
-        keys.forEach {
-            it.labelView.text = face(it.k.label, it.k.hint, it.k.style, shift, faceSymbol(it.kind))
+        keys.forEach { key ->
+            val k = key.k
+            key.labelView.text = face(k.label, k.hint, k.style, shift, faceSymbol(key.kind))
+            key.click = toAction(k.click, shift)
+            key.long = k.long?.let { toAction(it, shift) }
+            key.composing = k.composing?.let { candToAction(it) }
+            key.up = k.swipeUp?.let { toAction(it, shift) }
+            key.down = k.swipeDown?.let { toAction(it, shift) }
+            key.left = k.swipeLeft?.let { toAction(it, shift) }
+            key.right = k.swipeRight?.let { toAction(it, shift) }
         }
     }
 

@@ -28,7 +28,7 @@ APK 见 [Releases](https://github.com/linuxwff789/hexime/releases)。
   正常码表只收「全码首选」，一些字的全码是隐藏的（如 好=hcn、天=tma、人=rfp），平时打不出来，反查就是给它们用的。
 - **加词**：空格上滑，或选单「加词」。词条落 `custom_phrase.txt`（方案里的 `custom_phrase` 走 stabledb 直读），重启引擎即生效。
 - **配色**：12 套（孤寺 / 暮暮 / 暗堂等从主题 lua 里抽出来），选单或设置页里选，即时生效。
-- **方案**：openfly 小鹤音形 / luna_pinyin 朙月 / luna_pinyin_simp 简体 / luna_quanpin 全拼 / stroke 笔画。
+- **方案**：openfly 小鹤音形 / rime_ice 雾凇拼音（含英文 melt_eng、部件拆字 radical_pinyin 两个依赖方案）。
 - **备份同步**：`custom_phrase.txt` + 输入法设置 → 自己的私有 GitHub 仓库，Termux 侧 cron 与 App 内各一条路。
   **本地优先**：云端只在本机「还没拉过」时（首次安装 / 换机）自动拉，之后要主动用云端覆盖本地就点设置页的「下载」。
 - **性能**：候选栏 TextView 复用池、按键命中按行分桶、JNI 一次调用取回整屏状态、小鹤码表压成紧凑数组（约 2MB）。
@@ -55,7 +55,7 @@ lua5.4 tools/kbconvert.lua                                 # 改了 trime2 键�
 | 提示 / 注解 / 候选窗 开关 | 无实现，同样已从菜单2 去掉 |
 | `editor.lua` / `number_default.lua`（flex_box 布局） | 没转 |
 | web_search 脚本键 | 无 |
-| 简繁 | 有开关，但 openfly 方案没声明 `simplification`，视觉无变化（luna 下生效） |
+| 简繁 | 小鹤方案下无变化（openfly 没声明 `simplification`）；雾凇拼音下正常 |
 
 ## 目录
 

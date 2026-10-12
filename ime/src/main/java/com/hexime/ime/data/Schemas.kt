@@ -19,7 +19,7 @@ object Schemas {
      */
     val ALL: List<Pair<String, String>> = listOf(
         "openfly" to "小鹤音形",
-        "luna_pinyin" to "拼音（朙月）",
+        "rime_ice" to "雾凇拼音",
     )
 
     fun label(id: String): String = ALL.firstOrNull { it.first == id }?.second ?: id

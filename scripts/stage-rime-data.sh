@@ -5,7 +5,7 @@
 #   默认: benchmark/app/src/main/assets/rime --bench
 #
 # --bench 会额外生成「+lua filter」对比方案（仅基准用）。
-# 默认（正式 App）包含：小鹤音形 openfly、拼音 luna_pinyin、词频 essay、反查 stroke。
+# 默认（正式 App）包含：小鹤音形 openfly、雾凇拼音 rime_ice（含 melt_eng / radical_pinyin 依赖）。
 
 set -euo pipefail
 
@@ -33,20 +33,40 @@ mkdir -p "$DEST"
 
 clone() {
   echo "==> clone $1"
-  git clone --depth 1 "https://github.com/$1.git" "$WORK/$2"
+  # 网络抽风时 git clone 会 TLS unexpected eof（手机网络尤其常见）；
+  # set -e 下这一次失败会让整个 stage 中止、assets 变成半成品，所以自己重试。
+  local i
+  for i in 1 2 3 4; do
+    rm -rf "$WORK/$2"
+    if git clone --depth 1 "https://github.com/$1.git" "$WORK/$2" 2>&1; then
+      return 0
+    fi
+    echo "   clone $1 失败（第 $i 次），重试…"
+    sleep 3
+  done
+  echo "   !! clone $1 重试 4 次仍失败" >&2
+  return 1
 }
 
-# 拼音：prelude / luna-pinyin / essay / stroke
+# 基础配置：prelude（default.yaml / symbols.yaml 等，所有方案 import_preset 都要用）
 clone rime/rime-prelude prelude
-clone rime/rime-luna-pinyin luna
-clone rime/rime-essay essay
-clone rime/rime-stroke stroke
 
-find "$WORK/prelude" "$WORK/luna" "$WORK/stroke" -maxdepth 1 -type f \
+find "$WORK/prelude" -maxdepth 1 -type f \
   \( -name '*.yaml' -o -name '*.txt' \) -exec cp {} "$DEST/" \;
 
-# essay.txt 是词频数据（非 yaml），use_preset_vocabulary 必需
-[ -f "$WORK/essay/essay.txt" ] && cp "$WORK/essay/essay.txt" "$DEST/"
+# 拼音：雾凇拼音 rime-ice (GPL-3.0) —— 原来这里是朙月拼音 luna_pinyin
+# （luna 整套连同 essay 词频、stroke 笔画反查一起撤掉，省下约 11MB）
+clone iDvel/rime-ice rimeice
+
+# 主方案 + 词库入口（rime_ice.dict.yaml 用 import_tables 挂 cn_dicts/*）
+cp "$WORK/rimeice/rime_ice.schema.yaml" "$WORK/rimeice/rime_ice.dict.yaml" "$DEST/"
+# 两个 dependency 方案：英文 melt_eng、部件拆字 radical_pinyin
+cp "$WORK/rimeice/melt_eng.schema.yaml" "$WORK/rimeice/melt_eng.dict.yaml" "$DEST/"
+cp "$WORK/rimeice/radical_pinyin.schema.yaml" "$WORK/rimeice/radical_pinyin.dict.yaml" "$DEST/"
+# 符号/标点预设（schemas 里 import_preset 引用）
+cp "$WORK/rimeice/symbols_v.yaml" "$WORK/rimeice/symbols_caps_v.yaml" "$DEST/"
+# 词库目录 + lua 脚本（雾凇大量用 lua_translator/lua_filter）+ opencc（简繁、emoji）
+cp -r "$WORK/rimeice/cn_dicts" "$WORK/rimeice/en_dicts" "$WORK/rimeice/lua" "$WORK/rimeice/opencc" "$DEST/"
 
 # 小鹤音形：开源码表 openfly (MIT)
 clone amorphobia/openfly openfly
@@ -152,14 +172,7 @@ key_binder:
     - { when: composing, accept: period, send: "2" }
 YAML
 
-# 拼音方案也加上同样的次选绑定
-cat > "$DEST/luna_pinyin.custom.yaml" <<'YAML'
-patch:
-  key_binder/bindings/+:
-    - { when: composing, accept: period, send: "2" }
-YAML
-
-SCHEMAS="openfly,luna_pinyin"
+SCHEMAS="openfly,rime_ice"
 
 if [ "$BENCH" = "1" ]; then
   # 测 librime-lua 开销：同一个码表，仅多一个 lua filter
@@ -186,7 +199,7 @@ text = text.replace(
 open(dst, "w", encoding="utf-8").write(text)
 print("wrote openfly_lua.schema.yaml")
 PY
-  SCHEMAS="luna_pinyin,openfly,openfly_lua"
+  SCHEMAS="rime_ice,openfly,openfly_lua"
 fi
 
 # default.yaml 精简 schema_list
