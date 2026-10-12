@@ -354,17 +354,30 @@ class HeximeService : InputMethodService() {
         val t0 = System.nanoTime()
         when (action) {
             is KeyAction.Sym -> {
-                val handled = engine.processKey(action.keySym, action.mask)
-                // 引擎未处理且是可打印 ASCII，则直接上屏（数字/符号/英文）
-                if (!handled && action.keySym in 0x20..0x7E) {
-                    // 引擎没接（ascii/数字）就自己上屏；带 shift 时字母要大写
-                    val ch = action.keySym.toChar()
-                    val text = if (action.mask and InputEngine.MASK_SHIFT != 0) {
-                        ch.uppercaseChar().toString()
-                    } else {
-                        ch.toString()
+                // 标点直接上屏，不走引擎：句号(。)和点(.)是两个不同字符，中文下就该出「。」，
+                // 英文下出「.」；全半角只对「点」这类 ASCII 标点有意义（。没有半角形式）。
+                // 走引擎的话标点会先变成候选、还会被 ascii_punct 等开关掺和，用户要的是干脆上屏。
+                // 组合中不拦（小鹤把 . / , 绑给了次选/三选，交给 composing 那条路）。
+                val punct = if (composition.isEmpty()) {
+                    punctuationFor(action.keySym, asciiMode, fullShape)
+                } else {
+                    null
+                }
+                if (punct != null) {
+                    currentInputConnection?.commitText(punct, 1)
+                } else {
+                    val handled = engine.processKey(action.keySym, action.mask)
+                    // 引擎未处理且是可打印 ASCII，则直接上屏（数字/符号/英文）
+                    if (!handled && action.keySym in 0x20..0x7E) {
+                        // 引擎没接（ascii/数字）就自己上屏；带 shift 时字母要大写
+                        val ch = action.keySym.toChar()
+                        val text = if (action.mask and InputEngine.MASK_SHIFT != 0) {
+                            ch.uppercaseChar().toString()
+                        } else {
+                            ch.toString()
+                        }
+                        currentInputConnection?.commitText(text, 1)
                     }
-                    currentInputConnection?.commitText(text, 1)
                 }
             }
             is KeyAction.Named -> onNamedKey(action.name)
@@ -887,6 +900,24 @@ class HeximeService : InputMethodService() {
             vibEffectPercent = percent
         }
         if (effect != null) runCatching { v.vibrate(effect) }
+    }
+
+    /**
+     * 标点键 → 直接上屏的字符。
+     *
+     * 中文：出中文标点（。，？！；：），且「。」没有半角形式，全半角对它无效（用户明确要求）。
+     * 英文：出 ASCII 标点（., ?!;:），全角时用全角形式（．，？！；：）。
+     *
+     * 小鹤键面上一共有这几个标点键（含逗号/句号键的长按 ! / ?）。
+     */
+    private fun punctuationFor(keySym: Int, ascii: Boolean, full: Boolean): String? = when (keySym) {
+        0x2E -> if (ascii) (if (full) "．" else ".") else "。"   // . 
+        0x2C -> if (ascii) (if (full) "，" else ",") else "，"   // ,
+        0x3F -> if (ascii) (if (full) "？" else "?") else "？"   // ?
+        0x21 -> if (ascii) (if (full) "！" else "!") else "！"   // !
+        0x3B -> if (ascii) (if (full) "；" else ";") else "；"   // ;
+        0x3A -> if (ascii) (if (full) "：" else ":") else "："   // :
+        else -> null
     }
 
     /** 记录「按键 -> 下一帧渲染」的耗时，作为跟手性的量化指标。 */
