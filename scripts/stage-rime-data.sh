@@ -52,7 +52,7 @@ find "$WORK/prelude" "$WORK/luna" "$WORK/stroke" -maxdepth 1 -type f \
 clone amorphobia/openfly openfly
 for f in "$WORK/openfly"/openfly*.dict.yaml; do
   base="$(basename "$f")"
-  [ "$base" = "openfly_reverse.dict.yaml" ] && continue
+  # openfly_reverse.dict.yaml 就是「反查」用的码表（官方方案里 recognizer 用反引号触发），要带上
   cp "$f" "$DEST/"
 done
 
@@ -98,6 +98,8 @@ engine:
     # 加词：custom_phrase 走 stabledb，直读 user 目录下的 custom_phrase.txt
     # （小鹤方案原作者把 translator 的 enable_user_dict 关了，用户词库只能走这条 txt 路）
     - table_translator@custom_phrase
+    # 反查：照 openfly 官方接法 —— 输入全码再打一个反引号，用 openfly_reverse 码表反查
+    - reverse_lookup_translator
 
 speller:
   alphabet: '/;zyxwvutsrqponmlkjihgfedcba'
@@ -113,6 +115,15 @@ translator:
   enable_sentence: false
   enable_completion: false
   enable_user_dict: false
+
+# 反查（官方 openfly 同款）：recognizer 用反引号触发，字典是 openfly_reverse
+reverse_lookup:
+  dictionary: openfly_reverse
+  tips: 〔反查〕
+
+recognizer:
+  patterns:
+    reverse_lookup: "[a-z`]*`+[a-z`]*"
 
 # 用户加词：词条写在 <user>/custom_phrase.txt，一行「词<tab>码」
 custom_phrase:
