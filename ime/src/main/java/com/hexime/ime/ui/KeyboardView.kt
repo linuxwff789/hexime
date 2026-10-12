@@ -617,7 +617,7 @@ class KeyboardView(context: Context) : LinearLayout(context) {
         }
     }
 
-    /** 图标缓存：trime2 主题的单色 PNG（assets/icons/*.png），按「名字|颜色|尺寸」缓存染色结果。 */
+    /** 图标缓存：trime2 主题的单色 PNG（assets/icons/&lt;name&gt;.png），按「名字|颜色|尺寸」缓存染色结果。 */
     private val iconCache = HashMap<String, Drawable>()
 
     /**
