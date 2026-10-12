@@ -12,7 +12,6 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
-import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
 import android.provider.Settings
@@ -37,6 +36,7 @@ import com.hexime.ime.data.RimeDataInstaller
 import com.hexime.ime.data.Schemas
 import com.hexime.ime.data.SyncPrefs
 import com.hexime.ime.engine.RimeEngine
+import com.hexime.ime.ui.Haptics
 import com.hexime.ime.ui.HeximePalettes
 import java.util.concurrent.Executors
 
@@ -81,7 +81,7 @@ class MainActivity : Activity() {
     override fun onStop() {
         super.onStop()
         // 离开设置页时把本机改动推上去：不然下次「打开自动拉」会把刚改的配色/高度冲回旧值
-        if (settingsDirty && SyncPrefs.token(this).isNotBlank() && SyncPrefs.firstPullDone(this)) {
+        if (settingsDirty && SyncPrefs.token(this).isNotBlank()) {
             settingsDirty = false
             io.execute {
                 val r = runCatching { GithubSync.upload(this) }
@@ -347,6 +347,14 @@ class MainActivity : Activity() {
      */
     private fun autoPullOnOpen() {
         if (SyncPrefs.token(this).isBlank()) return
+        // 只在「本机还没从云端拉过」时才应用（首次安装 / 换机恢复）。
+        // 以前每次打开设置页都无脑覆盖本地，用户刚改的震动强度/配色会被云端旧值冲回去
+        // （用户反馈「设置页设置了没有改动，怀疑被 GitHub 备份还原」）。
+        // 想主动用云端覆盖本地 → 点下面的「下载」按钮。
+        if (SyncPrefs.firstPullDone(this)) {
+            syncStatus.text = SyncPrefs.lastSync(this)
+            return
+        }
         io.execute {
             val result = runCatching { GithubSync.download(this) }
                 .getOrElse { GithubSync.Result(false, "异常：${it.message}") }
@@ -565,15 +573,15 @@ class MainActivity : Activity() {
     }
 
     private fun previewVibration(percent: Int) {
-        if (percent <= 0) return
+        val effect = Haptics.effect(percent) ?: return
         val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             getSystemService(VibratorManager::class.java)?.defaultVibrator
         } else {
             @Suppress("DEPRECATION")
             getSystemService(Vibrator::class.java)
         } ?: return
-        val amplitude = (percent / 100.0 * 255).toInt().coerceIn(1, 255)
-        runCatching { vibrator.vibrate(VibrationEffect.createOneShot(35L, amplitude)) }
+        // 和键盘里按键用同一个波形，所见即所得
+        runCatching { vibrator.vibrate(effect) }
     }
 
     private fun refreshStatus() {

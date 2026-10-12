@@ -33,6 +33,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import com.hexime.ime.ui.CandidateBar
+import com.hexime.ime.ui.Haptics
 import com.hexime.ime.ui.HeximePalettes
 import com.hexime.ime.ui.KeyAction
 import com.hexime.ime.ui.KeyboardView
@@ -850,12 +851,11 @@ class HeximeService : InputMethodService() {
         if (!v.hasVibrator()) return
         var effect = vibEffect
         if (effect == null || vibEffectPercent != percent) {
-            val amplitude = (percent / 100.0 * 255).toInt().coerceIn(1, 255)
-            effect = VibrationEffect.createOneShot(12L, amplitude)
+            effect = Haptics.effect(percent)
             vibEffect = effect
             vibEffectPercent = percent
         }
-        runCatching { v.vibrate(effect) }
+        if (effect != null) runCatching { v.vibrate(effect) }
     }
 
     /** 记录「按键 -> 下一帧渲染」的耗时，作为跟手性的量化指标。 */

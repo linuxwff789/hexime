@@ -158,6 +158,16 @@ end
 
 local function basename(p) return (p:match("([^/]+)$") or p):gsub("%.lua$", "") end
 
+-- hexime 没实现的键：直接不生成（用户要求「没实现的开关去掉」）。
+-- 按图标名匹配（trime2 的键面就是图标名），改了主题也不会漏。
+local SKIP_ICON = {
+  ic_hint = "提示开关(未实现)",
+  ic_note = "注解开关(未实现)",
+  ic_candidate = "候选窗开关(未实现)",
+}
+
+local dropped = {}
+
 -- 无 label 的具名功能键 → 通用键面文字
 local DEFAULT_LABEL = {
   BackSpace = "⌫", Return = "↵", space = "空格", Shift_L = "⇧", Shift_R = "⇧",
@@ -188,9 +198,43 @@ local function convert(path)
   }
 
   for ri, row in ipairs(env.rows) do
-    local keys = row.keys or {}
-    local nk = #keys
+    local keys0 = row.keys or {}
     local h = row.height or env.key_height or (100 / nrows)
+
+    -- hexime 没实现的键直接不生成（用户要求「没实现的开关去掉」）。
+    -- trime2 的选单/菜单2 是等宽 5 列，删掉 1 个会留个 20% 的洞 →
+    -- 把这一行剩下的键按比例放宽，行宽仍然凑满 100%。
+    local total = 0
+    for _, k in ipairs(keys0) do total = total + (k.width or env.key_width or (100 / #keys0)) end
+    local kept, gone = {}, {}
+    for _, k in ipairs(keys0) do
+      local ct = type(k.click) == "table" and k.click or nil
+      local ico = nil
+      local lb = k.label or (ct and ct.label)
+      if type(lb) == "string" and lb:match("^ic_") then ico = lb end
+      if not ico and ct and type(ct.states) == "table" and type(ct.states[1]) == "string"
+         and ct.states[1]:match("^ic_") then
+        ico = ct.states[1]
+      end
+      if ico and SKIP_ICON[ico] then
+        gone[#gone + 1] = SKIP_ICON[ico]
+      else
+        kept[#kept + 1] = k
+      end
+    end
+    local keys = keys0
+    if #gone > 0 and #kept > 0 then
+      local keepTotal = 0
+      for _, k in ipairs(kept) do keepTotal = keepTotal + (k.width or env.key_width or 0) end
+      if keepTotal > 0 then
+        for _, k in ipairs(kept) do
+          k.width = (k.width or env.key_width or 0) * total / keepTotal
+        end
+      end
+      keys = kept
+      dropped[#dropped + 1] = string.format("%s row%d 去掉 %s", tostring(env.name), ri, table.concat(gone, "、"))
+    end
+    local nk = #keys
     local out = { h = h, keys = {} }
     local sum = 0
     for _, k in ipairs(keys) do
@@ -260,10 +304,12 @@ local function convert(path)
         o.longLabel = "`"
       end
 
-      -- hexime 扩展：选单里那个「语音」键在 hexime 是空动作（k=none），
-      -- 换成「方案」——循环切 openfly / luna_pinyin 等（trime2 的选单里有方案，hexime 原本没有）。
-      if o.click and o.click.k == "none" and (o.label == "语音" or o.label == "語音") then
-        o.label = "方案"
+      -- hexime 扩展：trime2 选单里的「语音」键（ic_mic / k=none），hexime 没有语音输入，
+      -- 把这个位置改成「方案」——点一下循环切 openfly / luna_pinyin 等（trime2 的方案在主选单里没有）。
+      if o.icon == "ic_mic" then
+        o.icon = "ic_keyboard"
+        o.hint = "方案"
+        o.label = ""
         o.click = { k = "cmd", v = "schema" }
       end
       out.keys[#out.keys + 1] = o
@@ -305,6 +351,10 @@ end
 
 print(string.format("converted %d keyboards → %s", done, OUT))
 if #skipped > 0 then print("skipped: " .. table.concat(skipped, ", ")) end
+if #dropped > 0 then
+  print(string.format("! 按 SKIP_ICON 去掉的键 %d 处（hexime 没实现）:", #dropped))
+  for _, s in ipairs(dropped) do print("   " .. s) end
+end
 if #badrows > 0 then
   print(string.format("! 行宽 != 100%% 的行 %d 处:", #badrows))
   for _, s in ipairs(badrows) do print("   " .. s) end

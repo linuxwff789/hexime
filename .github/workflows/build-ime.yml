@@ -10,6 +10,7 @@ on:
       - '.github/workflows/build-ime.yml'
     tags:
       - 'ime-*'
+      - 'v*'
   pull_request:
     paths:
       - 'ime/**'
@@ -84,13 +85,14 @@ jobs:
           path: ime/build/outputs/apk/release/*.apk
           if-no-files-found: error
 
-      # 每次 main 编译完都发一个 Release（签名固定 → 手机上可以直接 pm install -r 覆盖升级）
+      # main 每次编译完发一个滚动 Release；推 v1.0 这种 tag 则发对应版本号
+      # （签名固定 → 手机上可以直接 pm install -r 覆盖升级）
       - name: Publish to Release
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ime-${{ github.run_number }}
-          name: hexime ime-${{ github.run_number }} · ${{ github.sha }}
+          tag_name: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || format('ime-{0}', github.run_number) }}
+          name: ${{ startsWith(github.ref, 'refs/tags/v') && format('hexime {0}', github.ref_name) || format('hexime ime-{0} · {1}', github.run_number, github.sha) }}
           body: |
             自动构建 · commit `${{ github.sha }}` · run #${{ github.run_number }}
 
