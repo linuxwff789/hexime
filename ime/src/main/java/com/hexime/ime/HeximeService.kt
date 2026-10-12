@@ -60,8 +60,11 @@ class HeximeService : InputMethodService() {
     /** 顶栏容器（换配色时要改底色）。 */
     private var topBarView: LinearLayout? = null
 
-    /** 状态行上一次的文本（没变就不 setText）。 */
+    /** 状态行上一次的文本 + 生成它的输入（都没变就不重新拼、不 setText）。 */
     private var lastStatusText = ""
+    private var lastStatusSchema = ""
+    private var lastStatusAscii = false
+    private var lastStatusLatency = 0f
 
     /** 中/英状态标识（点一下切换）。 */
     private var modeView: TextView? = null
@@ -300,13 +303,16 @@ class HeximeService : InputMethodService() {
         io.execute {
             // 这里抛异常 = 输入法进程直接死；数据释放失败也要让键盘能弹出来（提示一下就行）
             val ok = runCatching {
+                // 数据版本没变、上次已部署过 → 这次不用 deploy（deploy 要重新扫配置+编译词库，
+                // 每次弹键盘都做一遍是白费；改了 assets 会 DATA_VERSION+1 自动重新部署）
+                val needDeploy = !RimeDataInstaller.isDeployed(this)
                 val shared = RimeDataInstaller.ensureInstalled(this)
                 val user = RimeDataInstaller.userDir(this).apply { mkdirs() }
                 val log = RimeDataInstaller.logDir(this).apply { mkdirs() }
                 val initialized = engine.initialize(shared.absolutePath, user.absolutePath, log.absolutePath)
                 if (initialized) {
-                    engine.deploy(false)
-                    Log.i(TAG, "engine ready, version=${engine.version()}")
+                    if (needDeploy) engine.deploy(false)
+                    Log.i(TAG, "engine ready, deploy=$needDeploy, version=${engine.version()}")
                 } else {
                     Log.e(TAG, "engine initialize failed")
                 }
@@ -755,18 +761,28 @@ class HeximeService : InputMethodService() {
 
     private fun updateStatus() {
         val bar = statusView ?: return
-        val text = when {
-            !ready -> "部署中…（首次会编译词库）"
-            else -> buildString {
-                // 顶栏要留出「＋词」「配色」按钮的位置，状态文字保持短
-                append(Schemas.label(engine.currentSchema()))
-                if (latencyOn) {
-                    append(" · %.1fms".format(latencyMs))
-                }
+        if (!ready) {
+            if (lastStatusText != NOT_READY) {
+                lastStatusText = NOT_READY
+                bar.text = NOT_READY
             }
+            return
         }
-        // 按键热路径上会频繁调用：文字没变就别 setText（省一次 measure/layout/draw）
-        if (lastStatusText == text) return
+        // 按键热路径上每次都调：先比「输入」，没变就直接返回 —— 连 buildString / String.format
+        // 的分配都省掉（原来每次都拼一遍字符串再比）
+        val schema = engine.currentSchema()
+        val latency = if (latencyOn) latencyMs else 0f
+        if (schema == lastStatusSchema && asciiMode == lastStatusAscii && latency == lastStatusLatency) {
+            return
+        }
+        lastStatusSchema = schema
+        lastStatusAscii = asciiMode
+        lastStatusLatency = latency
+        val text = if (latencyOn) {
+            "${Schemas.label(schema)} · %.1fms".format(latency)
+        } else {
+            Schemas.label(schema)
+        }
         lastStatusText = text
         bar.text = text
     }
@@ -808,6 +824,8 @@ class HeximeService : InputMethodService() {
 
         /** 用户词表（方案 custom_phrase 的 stabledb 源文件）。 */
         const val CUSTOM_PHRASE_FILE = "custom_phrase.txt"
+
+        const val NOT_READY = "部署中…（首次会编译词库）"
 
         /** 具名功能键 → X11 keysym（引擎优先）。 */
         val NAMED_KEYSYM = mapOf(

@@ -25,6 +25,16 @@ object RimeDataInstaller {
     fun userDir(context: Context): File = File(context.filesDir, "rime/user")
     fun logDir(context: Context): File = File(context.filesDir, "rime/log")
 
+    /**
+     * 数据已是当前版本、且已经释放过（= 上次部署过）。
+     * 用它决定「要不要 deploy」——没变就别部署，每次弹键盘能省 100~300ms。
+     */
+    fun isDeployed(context: Context): Boolean {
+        val marker = File(context.filesDir, "rime/.data_version")
+        val installed = marker.takeIf { it.exists() }?.readText()?.trim()?.toIntOrNull() ?: -1
+        return installed == DATA_VERSION && sharedDir(context).listFiles()?.isNotEmpty() == true
+    }
+
     /** 确保数据已释放，返回 shared 目录。可能较慢，应在后台线程调用。 */
     fun ensureInstalled(context: Context): File {
         val shared = sharedDir(context)
