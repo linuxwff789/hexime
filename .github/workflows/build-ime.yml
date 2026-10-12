@@ -111,9 +111,10 @@ jobs:
         run: |
           set -euo pipefail
           KEEP=6
-          # gh release list 默认按创建时间倒序
-          mapfile -t TAGS < <(gh release list --repo "$GITHUB_REPOSITORY" --limit 100 --json tagName             --jq '.[].tagName')
-          echo "现有 release: ${#TAGS[@]} 个，保留最近 $KEEP 个"
+          # gh release list 默认按创建时间倒序。
+          # 只清 ime-<run_number> 这类滚动包 —— v1.0 这种正式版本 release 永远不动。
+          mapfile -t TAGS < <(gh release list --repo "$GITHUB_REPOSITORY" --limit 100 --json tagName --jq '.[].tagName | select(startswith("ime-"))')
+          echo "现有滚动 release: ${#TAGS[@]} 个，保留最近 $KEEP 个"
           if [ "${#TAGS[@]}" -le "$KEEP" ]; then
             echo "无需清理"
             exit 0
