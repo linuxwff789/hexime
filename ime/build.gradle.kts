@@ -22,8 +22,11 @@ android {
         applicationId = "com.hexime.ime"
         minSdk = 29
         targetSdk = 35
-        versionCode = 10
-        versionName = "1.0"
+        versionCode = 11
+        // versionName 带上 CI 构建号：手机上一眼看出装的是哪一次编译。
+        // （以前一律 "1.0"，出过把旧包当新包装的事故。）
+        versionName = System.getenv("GITHUB_RUN_NUMBER")?.takeIf { it.isNotBlank() }
+            ?.let { "1.1.$it" } ?: "1.1-dev"
 
         externalNativeBuild {
             cmake {
