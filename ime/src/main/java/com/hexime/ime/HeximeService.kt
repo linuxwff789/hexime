@@ -320,6 +320,7 @@ class HeximeService : InputMethodService() {
                 val log = RimeDataInstaller.logDir(this).apply { mkdirs() }
                 val initialized = engine.initialize(shared.absolutePath, user.absolutePath, log.absolutePath)
                 if (initialized) {
+                    RimeDataInstaller.dropEmptyTables(user) // 0 字节码表会让部署线程 abort
                     if (needDeploy) engine.deploy(false)
                     Log.i(TAG, "engine ready, deploy=$needDeploy, version=${engine.version()}")
                 } else {
@@ -753,7 +754,10 @@ class HeximeService : InputMethodService() {
                 val user = RimeDataInstaller.userDir(this).apply { mkdirs() }
                 val log = RimeDataInstaller.logDir(this).apply { mkdirs() }
                 val initialized = engine.initialize(shared.absolutePath, user.absolutePath, log.absolutePath)
-                if (initialized) engine.deploy(false)
+                if (initialized) {
+                    RimeDataInstaller.dropEmptyTables(user)
+                    engine.deploy(false)
+                }
                 initialized
             }.getOrElse {
                 Log.e(TAG, "reloadEngine failed", it)

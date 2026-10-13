@@ -63,6 +63,28 @@ object RimeDataInstaller {
      * **user 目录** 解析相对路径的（桌面版把整个配置目录当 user dir，所以直接放 lua/ 下没问题）。
      * 不复制的话每次按键都会刷 `Error opening reversedb .../user/lua/lunar.db`，农历也就用不了。
      */
+    /**
+     * 部署前把 **0 字节**的码表文件清掉。
+     *
+     * librime 用 boost::interprocess mmap 码表；文件是 0 字节时 boost 会抛 C++ 异常，
+     * 而部署跑在 librime 的**维护线程**里 —— 那个异常没有 JNI 边界可兜，直接
+     * std::terminate → 整个输入法进程 abort（现象：键盘打不开，服务反复重启）。
+     * 先清掉，最坏是某个方案缺码表（加载时会被 JNI 的 try/catch 兜住），不会再崩。
+     *
+     * 正常部署产物不可能是空的，空的只可能来自同步被截断之类的意外。
+     * @return 清掉的文件数
+     */
+    fun dropEmptyTables(user: File): Int {
+        val dir = File(user, "build")
+        val empties = dir.listFiles { f: File -> f.isFile && f.length() == 0L && f.name.endsWith(".bin") }
+            ?: return 0
+        for (f in empties) {
+            Log.w(TAG, "删除 0 字节码表 ${'$'}{f.name}（留着会让 librime mmap 失败并 abort 进程）")
+            f.delete()
+        }
+        return empties.size
+    }
+
     private fun ensureUserLuaDb(shared: File, user: File) {
         val src = File(shared, "lua/lunar.db")
         if (!src.isFile) return
