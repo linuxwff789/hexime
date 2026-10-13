@@ -23,10 +23,21 @@ android {
         minSdk = 29
         targetSdk = 35
         versionCode = 11
-        // versionName 带上 CI 构建号：手机上一眼看出装的是哪一次编译。
+        // 版本号来源：
+        //   推 v1.1 这样的标签  → 正式版，versionName 就用标签里的版本号（"1.1"）
+        //   main 上的滚动构建  → "1.1.<构建号>"，手机上一眼看出装的是哪一次编译
+        //   本机手动编译      → "1.1-dev"
         // （以前一律 "1.0"，出过把旧包当新包装的事故。）
-        versionName = System.getenv("GITHUB_RUN_NUMBER")?.takeIf { it.isNotBlank() }
-            ?.let { "1.1.$it" } ?: "1.1-dev"
+        versionName = run {
+            val ref = System.getenv("GITHUB_REF_NAME")?.takeIf { it.isNotBlank() }
+            val tagBuild = System.getenv("GITHUB_REF")?.startsWith("refs/tags/v") == true
+            val run = System.getenv("GITHUB_RUN_NUMBER")?.takeIf { it.isNotBlank() }
+            when {
+                tagBuild && ref != null -> ref.removePrefix("v")
+                run != null -> "1.1.$run"
+                else -> "1.1-dev"
+            }
+        }
 
         externalNativeBuild {
             cmake {

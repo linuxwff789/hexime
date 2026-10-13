@@ -100,8 +100,10 @@ jobs:
           # 显式声明：一定要发成「已发布」，不能留成 draft
           # （之前查过一次：tag 都建出来了、Release 对象却是空的，公开下载全 404）
           draft: false
-          prerelease: false
-          make_latest: true
+          # 只有推 v* 标签的构建才算正式版（占 Latest 徽章）；
+          # main 上的滚动构建一律标成 prerelease，免得抢走正式版的位置。
+          prerelease: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+          make_latest: ${{ startsWith(github.ref, 'refs/tags/v') && 'true' || 'false' }}
 
       # 滚动清理：只留最近 6 个 Release（连同 tag 一起删）。
       # 每次编译都发 release 是为了「随时能点链接下最新包」，但攒多了列表就没法看了。
