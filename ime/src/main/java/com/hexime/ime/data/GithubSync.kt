@@ -140,6 +140,7 @@ object GithubSync {
             val shared = RimeDataInstaller.sharedDir(context)
             for (e in extras()) {
                 val data = remoteFile(repo, token, e.repoPath) ?: continue
+                if (data.isEmpty()) continue // remoteFile 已拦，双保险
                 writeInto(File(user, e.localPath), data)
                 if (e.alsoShared) writeInto(File(shared, e.localPath), data)
                 extraGot++
@@ -186,7 +187,8 @@ object GithubSync {
         // 额外方案：本机铺过才有，没铺的（比如刚装好）就不推
         for (e in extras()) {
             val f = File(user, e.localPath)
-            if (f.isFile) out.add(e.repoPath to f.readBytes())
+            // 空文件不推：本地要是被写坏了，别把仓库里的好文件也覆盖掉
+            if (f.isFile && f.length() > 0) out.add(e.repoPath to f.readBytes())
         }
         return out
     }
@@ -237,12 +239,46 @@ object GithubSync {
         return out.joinToString("\n") + "\n"
     }
 
+    /**
+     * 取远端文件内容。
+     *
+     * ★ 必须用 raw 媒体类型：contents API 默认的 JSON 模式对**超过 1MB** 的文件
+     *   会把 content 字段留空（encoding: none），只给 sha/size。照 JSON 解析的话
+     *   3.58MB 的码表会被写成 0 字节，而 librime 用 boost::interprocess 去 mmap
+     *   空文件会抛异常，JNI 接不住 → 整个输入法进程 abort（"打不开"）。
+     */
     private fun remoteFile(repo: String, token: String, path: String): ByteArray? {
-        val (code, text) = request("GET", "$API/repos/$repo/contents/$path?ref=$BRANCH", token, null)
+        val (code, bytes) = requestBytes(
+            "GET", "$API/repos/$repo/contents/$path?ref=$BRANCH", token, "application/vnd.github.raw",
+        )
         if (code == 404) return null
-        if (code !in 200..299) throw IllegalStateException("HTTP $code ${errOf(text)}")
-        val b64 = JSONObject(text).optString("content").replace("\n", "").replace("\r", "")
-        return Base64.decode(b64, Base64.DEFAULT)
+        if (code !in 200..299) throw IllegalStateException("HTTP $code")
+        if (bytes.isEmpty()) {
+            // 空内容一律不落盘：宁可跳过，也不能拿它覆盖本地已有的好文件
+            Log.w(TAG, "远端 $path 内容为空，跳过（本地不动）")
+            return null
+        }
+        return bytes
+    }
+
+    /** 取原始字节（大文件用；[request] 那边返回 String，二进制会被破坏）。 */
+    private fun requestBytes(method: String, url: String, token: String, accept: String): Pair<Int, ByteArray> {
+        val conn = (URL(url).openConnection() as HttpURLConnection).apply {
+            requestMethod = method
+            setRequestProperty("Authorization", "Bearer $token")
+            setRequestProperty("Accept", accept)
+            setRequestProperty("User-Agent", "hexime-ime")
+            connectTimeout = 15000
+            readTimeout = 60000 // 3.5MB 的码表，25 秒不够稳
+        }
+        try {
+            val code = conn.responseCode
+            val stream = if (code in 200..299) conn.inputStream else conn.errorStream
+            val bytes = stream?.use { it.readBytes() } ?: ByteArray(0)
+            return code to bytes
+        } finally {
+            conn.disconnect()
+        }
     }
 
     /** SharedPreferences 的 XML 是固定格式，正则够用（我们只同步自己写的这几个 key）。 */

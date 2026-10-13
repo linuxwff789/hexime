@@ -9,6 +9,7 @@
 #include <rime_api.h>
 
 #include <cstring>
+#include <exception>
 #include <string>
 #include <vector>
 
@@ -93,8 +94,18 @@ JNIEXPORT jboolean JNICALL
 Java_com_hexime_ime_engine_RimeNative_deploy(JNIEnv*, jobject, jboolean full_check) {
   RimeApi* rime = api();
   if (rime == nullptr) return JNI_FALSE;
-  Bool started = rime->start_maintenance(full_check ? True : False);
-  if (started) rime->join_maintenance_thread();
+  // 部署要编译/加载所有方案，同样可能抛异常（某个方案的数据坏了）
+  Bool started = False;
+  try {
+    started = rime->start_maintenance(full_check ? True : False);
+    if (started) rime->join_maintenance_thread();
+  } catch (const std::exception& e) {
+    LOGE("deploy 抛异常: %s", e.what());
+    return JNI_FALSE;
+  } catch (...) {
+    LOGE("deploy 抛未知异常");
+    return JNI_FALSE;
+  }
   return started ? JNI_TRUE : JNI_FALSE;
 }
 
@@ -102,7 +113,17 @@ JNIEXPORT jlong JNICALL
 Java_com_hexime_ime_engine_RimeNative_createSession(JNIEnv*, jobject) {
   RimeApi* rime = api();
   if (rime == nullptr) return 0;
-  return static_cast<jlong>(rime->create_session());
+  // 建会话会去加载当前方案的码表。码表损坏（例如被截成 0 字节）时 librime 会抛
+  // C++ 异常，异常穿过 JNI 边界会直接 abort 整个进程 —— 用户看到的就是"打不开"。
+  // 这里兜住，退化成"没会话"，而不是整个输入法挂掉。
+  try {
+    return static_cast<jlong>(rime->create_session());
+  } catch (const std::exception& e) {
+    LOGE("create_session 抛异常: %s", e.what());
+  } catch (...) {
+    LOGE("create_session 抛未知异常");
+  }
+  return 0;
 }
 
 JNIEXPORT void JNICALL
@@ -119,8 +140,16 @@ Java_com_hexime_ime_engine_RimeNative_selectSchema(JNIEnv* env, jobject, jlong s
   std::string schema;
   to_string(env, j_schema, &schema);
   if (schema.empty()) return JNI_FALSE;
-  return rime->select_schema(static_cast<RimeSessionId>(sid), schema.c_str()) ? JNI_TRUE
-                                                                              : JNI_FALSE;
+  // 同 create_session：切方案要加载码表，损坏的码表会把异常抛到 JNI 边界外。
+  try {
+    return rime->select_schema(static_cast<RimeSessionId>(sid), schema.c_str()) ? JNI_TRUE
+                                                                                 : JNI_FALSE;
+  } catch (const std::exception& e) {
+    LOGE("select_schema(%s) 抛异常: %s", schema.c_str(), e.what());
+  } catch (...) {
+    LOGE("select_schema(%s) 抛未知异常", schema.c_str());
+  }
+  return JNI_FALSE;
 }
 
 JNIEXPORT jstring JNICALL
