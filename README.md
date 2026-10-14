@@ -4,7 +4,7 @@
 引擎直接用 librime（JNI 静态链接 rime-lua / octagram / predict），68 个键盘布局与 12 套配色内置为资源。
 本地优先、低延迟、不联网（除了你自己配的 GitHub 备份）。
 
-**当前版本：1.0** · 最低 Android 10（API 29）
+**当前版本：1.2** · 最低 Android 10（API 29）
 
 ## 安装
 
@@ -13,7 +13,7 @@
 ```
 pm install -r hexime-release.apk
 ime enable com.hexime.ime/.HeximeService
-appops set com.hexime.ime SYSTEM_ALERT_WINDOW allow    # 加词浮窗要用
+appops set com.hexime.ime SYSTEM_ALERT_WINDOW allow    # 加词浮窗 + 悬浮键盘要用
 ```
 
 刻意**不做** `ime set`：装完不会把你正在用的输入法切走，自己到系统里切。
@@ -24,6 +24,13 @@ APK 见 [Releases](https://github.com/linuxwff789/hexime/releases)。
 
 - **键盘**：内置 68 个键盘，布局在 `assets/keyboards/<id>.json`（由 `tools/kbconvert.lua` 从键盘 lua 转出），Kotlin 只做 dispatch。
   功能键键面是单色 PNG（`assets/icons/`），按当前配色 SRC_IN 染色，中文小字在下。
+- **悬浮键盘**：悬浮 / 停靠两种形态，把手条「⇲ 停靠 / ⤢ 悬浮 / ⌄ 收起」切换，形态按横竖屏分别记住。
+  悬浮时把 IME 窗口压到 1px，键盘画在独立的 `TYPE_APPLICATION_OVERLAY` 窗口里 —— 宿主 app 不预留空间、内容不上移
+  （A14 framework 里 app 拿到的 ime inset 写死是「IME 窗口与 app 的交叠高度」，窗口只要有高度就一定会留白）。
+  **横屏悬浮是左右两块各自一个独立窗口，中间那条空档没有窗口覆盖，所以空档处的手势直接落到下面的 app**；
+  竖屏悬浮是一整块。半透明度在设置里调（「悬浮键盘透明度」30~100%，默认 70%，底色仍是本配色的颜色、只调 alpha）。
+  横屏键盘高度自动封顶屏高 35%。需要 `SYSTEM_ALERT_WINDOW`。
+- **顶栏**：中/英 + 编码（左）· 方案名（正中，点一下切方案）· ＋词 + 配色（右）；方案名/编码单行省略，任何屏宽都不被裁掉。
 - **反查**：输入全码再打一个反引号（助记键盘上反引号 = 长按 z）。
   正常码表只收「全码首选」，一些字的全码是隐藏的（如 好=hcn、天=tma、人=rfp），平时打不出来，反查就是给它们用的。
 - **加词**：空格上滑，或选单「加词」。词条落 `custom_phrase.txt`（方案里的 `custom_phrase` 走 stabledb 直读），重启引擎即生效。
