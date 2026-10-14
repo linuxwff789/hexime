@@ -91,6 +91,75 @@ class KeyboardView(context: Context) : LinearLayout(context) {
     /** 上次应用的高度（dp）：和配色分开判断，只换配色时不重建视图。 */
     private var appliedHeightDp: Int = HeximeSettings.keyboardHeightDp(context)
 
+    /**
+     * 键盘总高（dp）。服务侧横屏时会传封顶值（屏高 × 55%），避免 280dp 在横屏占掉大半屏。
+     */
+    var heightDp: Int = HeximeSettings.keyboardHeightDp(context)
+        set(value) {
+            if (field != value) {
+                field = value
+                totalHeightPx = (value * resources.displayMetrics.density).toInt()
+                appliedHeightDp = value
+                if (keys.isNotEmpty()) build()
+            }
+        }
+
+    /**
+     * 只出半块：-1 = 整块（停靠态，默认）；0 = 只出左半；1 = 只出右半。
+     * 悬浮形态下左右两半是**两个独立的 overlay 窗口**（各自一份 KeyboardView），
+     * 中间那块就没有窗口覆盖 → 触摸能穿透到下面的 app。
+     */
+    var half: Int = -1
+        set(value) {
+            if (field != value) {
+                field = value
+                if (keys.isNotEmpty()) build()
+            }
+        }
+
+    /**
+     * 悬浮时把键盘底色改成完全透明（真·没背景）。
+     * 平时用 [backgroundAlphaPercent] 调半透明就够了 —— 这个开关只在需要"连底色都不要"时用。
+     */
+    var transparentBackground: Boolean = false
+        set(value) {
+            if (field != value) {
+                field = value
+                setBackgroundColor(bgColor())
+            }
+        }
+
+    /**
+     * 键盘底色的透明度（百分比，100 = 不透明）。
+     * 悬浮时按设置里的「悬浮键盘透明度」给底色上 alpha —— **保留配色本身的色值**，
+     * 只是变半透明（用户要的是"背景还在、能透出后面的内容"，不是"把背景去掉"）。
+     */
+    var backgroundAlphaPercent: Int = 100
+        set(value) {
+            val v = value.coerceIn(0, 100)
+            if (field != v) {
+                field = v
+                setBackgroundColor(bgColor())
+            }
+        }
+
+    /** 键盘底色：完全透明 / 配色底色按 alpha 调 / 原样。 */
+    private fun bgColor(): Int {
+        if (transparentBackground) return android.graphics.Color.TRANSPARENT
+        val pct = backgroundAlphaPercent
+        if (pct >= 100) return palette.keyboardBg
+        val a = pct * 255 / 100
+        return (palette.keyboardBg and 0x00FFFFFF) or (a shl 24)
+    }
+
+    /** 探针用：把关键数值吐成一行字符串。 */
+    fun debugSummary(): String {
+        val rows = def?.rows ?: return "kv: def=null"
+        return "kv: half=$half hDp=$heightDp totalPx=$totalHeightPx rows=${rows.size} " +
+            "h%=${rows.map { it.heightPercent }} keysPerRow=${rows.map { it.keys.size }} " +
+            "childCount=$childCount h=$height m=$measuredHeight"
+    }
+
     private class KeyHolder(
         val view: View,
         /** 键面主字（容器里可能还有键角的长按字符）。 */
@@ -172,7 +241,7 @@ class KeyboardView(context: Context) : LinearLayout(context) {
         val heightChanged = totalHeightDp != appliedHeightDp
         this.palette = palette
         totalHeightPx = (totalHeightDp * resources.displayMetrics.density).toInt()
-        setBackgroundColor(palette.keyboardBg)
+        setBackgroundColor(bgColor())
         if (heightChanged || keys.isEmpty()) {
             appliedHeightDp = totalHeightDp
             build()
@@ -504,7 +573,24 @@ class KeyboardView(context: Context) : LinearLayout(context) {
             currentBucket = bucket
             // 行高 = 键盘总高 × 该行 h%（小鹤的 h% 每页加起来都是 100，所以各页总高一致）
             val h = (totalHeightPx * row.heightPercent / 100f).toInt().coerceAtLeast(dp(16))
-            for (k in row.keys) {
+            // 半块模式：按累计宽度在 50% 处切开，只出自己那一半的键（左右两块是两个独立窗口）
+            val rowTotal = row.keys.sumOf { it.width.toDouble() }.toFloat()
+            val mid = rowTotal / 2f
+            var splitAt = row.keys.size
+            run {
+                var a = 0f
+                for (i in row.keys.indices) {
+                    val kk = row.keys[i]
+                    if (a + kk.width / 2f > mid) {
+                        splitAt = i
+                        break
+                    }
+                    a += kk.width
+                }
+            }
+            for ((ki, k) in row.keys.withIndex()) {
+                if (half == 0 && ki >= splitAt) continue
+                if (half == 1 && ki < splitAt) continue
                 val placeholder = isPlaceholder(k)
                 val kind = kindOf(k)
                 val iconSize = (h * 0.46f).toInt().coerceAtMost(dp(28))

@@ -9,6 +9,7 @@ object HeximeSettings {
     private const val KEY_VIBRATION_PERCENT = "vibration_percent"
     private const val KEY_SHOW_LATENCY = "show_latency"
     private const val KEY_KEYBOARD_HEIGHT = "keyboard_height_dp"
+    private const val KEY_FLOAT_ALPHA = "float_alpha_percent"
     private const val KEY_PALETTE = "palette_id"
     private const val KEY_SCHEMA = "schema_id"
 
@@ -59,6 +60,25 @@ object HeximeSettings {
     fun setKeyboardHeightDp(context: Context, value: Int) {
         prefs(context).edit()
             .putInt(KEY_KEYBOARD_HEIGHT, value.coerceIn(KEYBOARD_HEIGHT_MIN, KEYBOARD_HEIGHT_MAX))
+            .apply()
+    }
+
+    /**
+     * 悬浮键盘整体透明度（百分比，100 = 完全不透明）。
+     * 悬浮时整个面板（键面 + 文字 + 背景）都按这个值调 alpha，**与配色无关** ——
+     * 以前是写死 0.85，加上各配色自己的底色差别，看起来像"只有某些配色变透明"。
+     */
+    const val FLOAT_ALPHA_DEFAULT = 70
+    const val FLOAT_ALPHA_MIN = 30
+    const val FLOAT_ALPHA_MAX = 100
+
+    fun floatAlphaPercent(context: Context): Int =
+        prefs(context).getInt(KEY_FLOAT_ALPHA, FLOAT_ALPHA_DEFAULT)
+            .coerceIn(FLOAT_ALPHA_MIN, FLOAT_ALPHA_MAX)
+
+    fun setFloatAlphaPercent(context: Context, value: Int) {
+        prefs(context).edit()
+            .putInt(KEY_FLOAT_ALPHA, value.coerceIn(FLOAT_ALPHA_MIN, FLOAT_ALPHA_MAX))
             .apply()
     }
 

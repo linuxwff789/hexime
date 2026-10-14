@@ -57,6 +57,8 @@ class MainActivity : Activity() {
     private lateinit var schemaSpinner: Spinner
     private lateinit var paletteSpinner: Spinner
     private lateinit var heightSeek: SeekBar
+    private lateinit var floatAlphaSeek: SeekBar
+    private lateinit var alphaValue: TextView
     private lateinit var vibSeek: SeekBar
     private lateinit var latencySwitch: Switch
 
@@ -209,6 +211,31 @@ class MainActivity : Activity() {
             })
             box.addView(heightSeek)
             updateHeightLabel(heightSeek.progress)
+
+            box.addView(sectionLabel("悬浮键盘透明度（100% = 不透明，与配色无关）"))
+            alphaValue = TextView(this).apply {
+                textSize = 14f
+                setTextColor(c.onSurfaceVariant)
+            }
+            box.addView(alphaValue)
+            floatAlphaSeek = SeekBar(this).apply {
+                max = HeximeSettings.FLOAT_ALPHA_MAX - HeximeSettings.FLOAT_ALPHA_MIN
+                progress = HeximeSettings.floatAlphaPercent(this@MainActivity) -
+                    HeximeSettings.FLOAT_ALPHA_MIN
+                tint(c.accent)
+            }
+            floatAlphaSeek.setOnSeekBarChangeListener(object : SimpleSeek() {
+                override fun onProgressChanged(sb: SeekBar?, value: Int, fromUser: Boolean) {
+                    HeximeSettings.setFloatAlphaPercent(
+                        this@MainActivity,
+                        value + HeximeSettings.FLOAT_ALPHA_MIN,
+                    )
+                    if (fromUser) settingsDirty = true
+                    updateAlphaLabel(value)
+                }
+            })
+            box.addView(floatAlphaSeek)
+            updateAlphaLabel(floatAlphaSeek.progress)
         })
 
         // ---------------- 卡片：手感 ----------------
@@ -570,6 +597,15 @@ class MainActivity : Activity() {
 
     private fun updateHeightLabel(progress: Int) {
         heightValue.text = "键盘高度：${progress + HeximeSettings.KEYBOARD_HEIGHT_MIN} dp"
+    }
+
+    private fun updateAlphaLabel(progress: Int) {
+        val pct = progress + HeximeSettings.FLOAT_ALPHA_MIN
+        alphaValue.text = if (pct >= 100) {
+            "悬浮透明度：100%（完全不透明）"
+        } else {
+            "悬浮透明度：$pct%"
+        }
     }
 
     private fun previewVibration(percent: Int) {

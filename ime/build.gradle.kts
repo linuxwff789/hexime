@@ -22,7 +22,7 @@ android {
         applicationId = "com.hexime.ime"
         minSdk = 29
         targetSdk = 35
-        versionCode = 11
+        versionCode = 12
         // 版本号来源：
         //   推 v1.1 这样的标签  → 正式版，versionName 就用标签里的版本号（"1.1"）
         //   main 上的滚动构建  → "1.1.<构建号>"，手机上一眼看出装的是哪一次编译

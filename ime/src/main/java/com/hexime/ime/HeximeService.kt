@@ -3,7 +3,10 @@ package com.hexime.ime
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.content.res.Configuration
 import android.graphics.Color
+import android.graphics.PixelFormat
+import android.graphics.drawable.ColorDrawable
 import android.icu.util.ChineseCalendar
 import android.inputmethodservice.InputMethodService
 import android.os.Build
@@ -12,13 +15,18 @@ import android.os.Looper
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
+import android.provider.Settings
 import android.util.Log
 import android.util.TypedValue
 import android.view.Choreographer
 import android.view.Gravity
 import android.view.KeyEvent
+import android.view.MotionEvent
 import android.view.View
+import android.view.Window
+import android.view.WindowManager
 import android.view.inputmethod.EditorInfo
+import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
 import com.hexime.ime.data.HeximeSettings
@@ -63,7 +71,7 @@ class HeximeService : InputMethodService() {
     private var paletteView: TextView? = null
 
     /** 顶栏容器（换配色时要改底色）。 */
-    private var topBarView: LinearLayout? = null
+    private var topBarView: View? = null
 
     /** 状态行上一次的文本 + 生成它的输入（都没变就不重新拼、不 setText）。 */
     private var lastStatusText = ""
@@ -90,7 +98,40 @@ class HeximeService : InputMethodService() {
 
     private var statusView: TextView? = null
     private var candidateBar: CandidateBar? = null
+    /** 停靠态（整块）键盘视图；悬浮态下它仍有实例（状态源），但画面在左右两个窗口里。 */
     private var keyboardView: KeyboardView? = null
+    /** 悬浮分半：左右两半各是一个独立 overlay 窗口，各自一份 KeyboardView。 */
+    private var keyboardViewRight: KeyboardView? = null
+    /** 停靠态用的整块面板（IME 窗口里的 input view）。 */
+    private var panelDocked: View? = null
+    /** 悬浮态的左半块面板（顶栏/候选栏/左半键位都在这块里）。 */
+    private var panelLeft: View? = null
+    private var panelRight: View? = null
+    private var rightSpacerView: View? = null
+    private var lpRight: WindowManager.LayoutParams? = null
+
+    /** 对所有 KeyboardView 实例执行（悬浮时左右各一份，状态要一起改）。 */
+    private fun onKeyboards(block: (KeyboardView) -> Unit) {
+        for (kv in listOfNotNull(keyboardView, keyboardViewRight)) {
+            try {
+                block(kv)
+            } catch (t: Throwable) {
+                Log.e(TAG, "更新键盘视图失败", t)
+            }
+        }
+    }
+
+    /** 新造出来的 KeyboardView 要补上当前会话状态（键盘页 / 中英 / shift / 高度）。 */
+    private fun applyStateTo(kv: KeyboardView) {
+        try {
+            kv.heightDp = effectiveKeyboardHeightDp()
+            kv.setAscii(asciiMode)
+            kv.setShift(shiftOn)
+            keyboardPerSchema[engine.currentSchema()]?.let { kv.showKeyboard(it) }
+        } catch (t: Throwable) {
+            Log.e(TAG, "同步键盘状态失败", t)
+        }
+    }
 
 
     private var shiftOn = false
@@ -135,13 +176,558 @@ class HeximeService : InputMethodService() {
 
     override fun onCreate() {
         super.onCreate()
+        // 形态按方向分开记：横屏默认悬浮，竖屏默认贴底（用户手动切过就按手动的）
+        floatingNow = defaultFloating() && overlayAllowed()
         bootstrapEngine()
+    }
+
+    // ===================== 悬浮键盘（overlay 窗口形态） =====================
+    //
+    // v1（已实测）：IME 自己设窗口 geometry 是**被系统认的**（键盘能拖、位置/宽度/半透明都生效）。
+    //   但留下一大段空白：A14 framework 里 app 拿到的 ime inset 是 InsetsSource.calculateInsets()
+    //   写死的「IME 窗口与 app 窗口的交叠高度」→ 只要 IME 窗口有高度，宿主 app 就一定在底部预留
+    //   同等高度；键盘一拖走，那段就成了空白。**透明 ≠ 不占位。**
+    // v2（本版）：把 IME 窗口高度压到 ≈0（里面只放 1px 透明占位视图），键盘真正画在一个
+    //   TYPE_APPLICATION_OVERLAY 悬浮窗里 —— app 不再预留、不再上移，键盘浮在内容之上、可拖、半透明。
+    //   （Gboard 悬浮键盘就是这个形态：IME 窗口 frame 高 ≤ 导航栏高 → Shell 按 floating 处理，不顶 app。）
+    private var placeholderView: View? = null
+    private var overlayLp: WindowManager.LayoutParams? = null
+    /** 左右两块面板的 layout 监听（一起摘）。 */
+    private val overlayLayoutListeners = ArrayList<Pair<View, View.OnLayoutChangeListener>>()
+    /** 用户手动拖过悬浮键盘之后，就不再自动贴底（免得跟他抢）。 */
+    private var userMovedOverlay = false
+    /** 面板当前是否作为 IME 窗口的 input view（停靠态）。 */
+    private var panelInImeWindow = false
+    /** 当前形态：true=悬浮（overlay），false=停靠（贴底正常键盘）。存 prefs，下次弹键盘沿用。 */
+    private var floatingNow = true
+    /**
+     * 输入法视图是否真的在显示（onStartInputView ↔ onFinishInputView/onWindowHidden）。
+     * 旋转时用它拦住「没有输入框也把悬浮键盘挂出来」：overlay 是我们自己的窗口，
+     * 不受系统 show/hide 约束，一旦在 onConfigurationChanged 里无条件挂上，横屏就会凭空弹键盘。
+     */
+    private var inputShown = false
+    private var dockView: TextView? = null
+    private var handleView: TextView? = null
+    private var handleText = ""
+    private var dragStartRawX = 0f
+    private var dragStartRawY = 0f
+    private var dragStartX = 0
+    private var dragStartY = 0
+    private var dragStartRightX = 0
+    private var dragStartRightY = 0
+
+    /** 面板各子视图的高度：定位"谁把面板撑满"。 */
+    private fun probeChildren(): String {
+        val p = panelLeft as? android.view.ViewGroup ?: return "children: panel=null"
+        val sb = StringBuilder("children:")
+        for (i in 0 until p.childCount) {
+            val c = p.getChildAt(i)
+            sb.append(" [${c.javaClass.simpleName} h=${c.height} m=${c.measuredHeight} lp=${c.layoutParams?.height}]")
+        }
+        val kv = keyboardView
+        if (kv != null) {
+            sb.append(" | kv h=${kv.height} m=${kv.measuredHeight} rows=${kv.childCount}")
+            for (i in 0 until kv.childCount) {
+                val r = kv.getChildAt(i)
+                sb.append(" r$i=${r.height}/${r.measuredHeight}/lp${r.layoutParams?.height}")
+            }
+        }
+        return sb.toString()
+    }
+    private fun probeLog(msg: String) {
+        try {
+            val f = java.io.File(filesDir, "probe.log")
+            if (f.length() > 200_000) f.delete()
+            f.appendText("${System.currentTimeMillis()} $msg\n")
+        } catch (t: Throwable) {
+            // 探针日志失败不影响键盘
+        }
+    }
+
+    private fun probeState(tag: String): String {
+        val dm = resources.displayMetrics
+        val win = try {
+            window?.window
+        } catch (t: Throwable) {
+            null
+        }
+        val lp = overlayLp
+        return "$tag | land=${isLandscape()} dm=${dm.widthPixels}x${dm.heightPixels} " +
+            "dens=${dm.density} screenHpx=${screenHeightPx()} effKb=${effectiveKeyboardHeightDp()} " +
+            "floating=$floatingNow L=${panelLeft?.let { "${it.width}x${it.height}" } ?: "none"} " +
+            "R=${panelRight?.let { "${it.width}x${it.height}" } ?: "none"} half=${keyboardView?.half} " +
+            "overlay=${lp?.let { "x=${it.x} y=${it.y} w=${it.width}" } ?: "none"} " +
+            "overlayR=${lpRight?.let { "x=${it.x} y=${it.y} w=${it.width}" } ?: "none"} " +
+            "imeWin=${win?.attributes?.let { "${it.width}x${it.height}" }}"
+    }
+
+    private fun wm(): WindowManager? = getSystemService(WINDOW_SERVICE) as? WindowManager
+
+    /** 旋转后：形态按新方向取，尺寸全变了 → 整组面板重建（下次挂载按新方向建）。 */
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        probeLog("onConfigurationChanged cfg.orientation=${newConfig.orientation}")
+        try {
+            appliedKeyHeight = effectiveKeyboardHeightDp()
+            floatingNow = defaultFloating() && overlayAllowed()
+            dropPanels()
+            // 只有「键盘本来就在显示」才重建挂载：没有输入框时（桌面/无焦点）旋转不许弹键盘
+            if (floatingNow && keyboardVisible()) {
+                main.post { if (floatingNow && keyboardVisible()) showOverlayKeyboard() }
+            }
+            syncWindowLayout()
+        } catch (t: Throwable) {
+            Log.e(TAG, "onConfigurationChanged 失败（不崩）", t)
+        }
+    }
+
+    /**
+     * 悬浮键盘整体透明度（0..1），来自设置里的「悬浮键盘透明度」。
+     * 以前写死 0.85 —— 各配色底色不同，看起来像"只有某些配色会透明"；现在统一由这个值决定。
+     */
+    private fun floatAlpha(): Float = HeximeSettings.floatAlphaPercent(this) / 100f
+
+    /** 键盘此刻该不该在屏幕上：平台状态 + 我们自己的生命周期标记，取或。 */
+    private fun keyboardVisible(): Boolean = try {
+        isInputViewShown || inputShown
+    } catch (t: Throwable) {
+        inputShown
+    }
+
+    private fun overlayAllowed(): Boolean = try {
+        Settings.canDrawOverlays(this)
+    } catch (t: Throwable) {
+        false
+    }
+
+    private fun isLandscape(): Boolean =
+        resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+
+    /**
+     * 当前屏幕高度（px）。用 `resources.displayMetrics`：它是跟随旋转的（实测横屏宽 2296 = 2400-104 正确）。
+     * **不要**用 `WindowManager.currentWindowMetrics`：在 Service 上下文里它返回未旋转的 2400（横屏时也是 2400），
+     * 会让"横屏按屏高封顶"完全失效（实测键盘仍用 320dp → 面板 956px ≈ 屏高 88%）。
+     */
+    private fun screenHeightPx(): Int {
+        val h = resources.displayMetrics.heightPixels
+        if (h > 0) return h
+        return try {
+            wm()?.currentWindowMetrics?.bounds?.height() ?: 0
+        } catch (t: Throwable) {
+            0
+        }
+    }
+
+    /**
+     * 当前屏幕高度（dp）。**不要**用服务侧缓存的 displayMetrics：旋转后它可能还是竖屏的值
+     * （2400/2.225≈1078dp），横屏封顶就失效 → 键盘几乎占满横屏。
+     */
+    private fun screenHeightDp(): Int = (screenHeightPx() / resources.displayMetrics.density).toInt()
+
+    /** 键盘总高（dp）：横屏按屏高 35% 封顶（横屏可用高约 430dp，280dp~320dp 会占掉大半屏）。 */
+    private fun effectiveKeyboardHeightDp(): Int {
+        val user = HeximeSettings.keyboardHeightDp(this)
+        if (!isLandscape()) return user
+        return user.coerceAtMost((screenHeightDp() * 0.35f).toInt())
+    }
+
+    /** 导航栏高度：悬浮键盘默认放在它上方，别压在导航条上。 */
+    private fun navBottomPx(): Int = try {
+        val v = window?.window?.decorView
+        if (v == null) 0 else (v.rootWindowInsets?.systemWindowInsets?.bottom ?: 0)
+    } catch (t: Throwable) {
+        0
+    }
+
+    /** 悬浮形态按方向分别记：横竖屏都默认悬浮（竖屏也要两块分半 + 中间透出内容）。 */
+    private fun floatingPrefKey(): String =
+        if (isLandscape()) "floating_landscape" else "floating_portrait"
+
+    private fun defaultFloating(): Boolean = probePrefs().getBoolean(floatingPrefKey(), true)
+
+    /** 分半空档占行宽的比例（和 KeyboardView.splitGapFactor 保持一致）。 */
+    private val SPLIT_GAP_FACTOR = 1.2f
+
+    /**
+     * 形态相关的键盘参数（高度按屏高/方向封顶）。
+     * 半块还是整块由面板构造时决定（悬浮 = 左右两个窗口各 half=0/half=1；停靠 = 整块 half=-1），
+     * 运行时不用再切换，这里只同步尺寸。
+     */
+    private fun syncKeyboardMode() {
+        val h = effectiveKeyboardHeightDp()
+        onKeyboards { it.heightDp = h }
+    }
+
+    /** 横屏也别进系统的「全屏 + 抽取输入框」模式。 */
+    override fun onEvaluateFullscreenMode(): Boolean = false
+
+    /**
+     * 悬浮态：IME 窗口钉成 1px 高 → app 拿到的 ime inset≈0，不预留空间、不上移。
+     * 停靠态：交回系统默认（super 设成 MATCH_PARENT × WRAP_CONTENT，键盘贴底正常占位）。
+     */
+    override fun onConfigureWindow(win: Window, isFullscreen: Boolean, isCandidatesOnly: Boolean) {
+        if (floatingNow && overlayAllowed()) {
+            // 不调 super；也**不能**只靠 WRAP_CONTENT + 1px 占位视图：占位视图在 AOSP 的 FrameLayout
+            // 里会拿到默认 MATCH_PARENT，窗口就跟着量成整屏高（实测 Requested h=2400/1080）。
+            win.setLayout(WindowManager.LayoutParams.MATCH_PARENT, 1)
+        } else {
+            super.onConfigureWindow(win, isFullscreen, isCandidatesOnly)
+        }
+    }
+
+    /** 悬浮键盘宽度占屏宽比例：贴两边（左右手够得着），中间留空档透出内容。 */
+    private fun overlayWidthFraction(): Float = 0.98f
+
+    /** 屏幕宽度（px）：`resources.displayMetrics` 跟随旋转（实测横屏 2296=2400-104）。 */
+    private fun screenWidthPx(): Int {
+        val w = resources.displayMetrics.widthPixels
+        return if (w > 0) w else screenHeightPx()
+    }
+
+    /**
+     * 悬浮分半时「左边那一块」占整行的比例：左半权重 50 ÷（左 50 + 空档 1.2×100 + 右 50）≈ 0.227。
+     * 左右两个窗口各占这么宽；中间那一大条没有窗口 → 触摸穿透到下面的内容。
+     */
+    private fun splitBlockFraction(): Float = 50f / (100f + 100f * SPLIT_GAP_FACTOR)
+
+    /** 丢掉当前所有面板（形态切换 / 旋转时用）：视图字段一起清，避免两套顶栏互相覆盖。 */
+    private fun dropPanels() {
+        hideOverlayKeyboard()
+        panelLeft = null
+        panelRight = null
+        panelDocked = null
+        rightSpacerView = null
+        keyboardView = null
+        keyboardViewRight = null
+    }
+
+    /**
+     * 悬浮分半的右半块：顶部一段等高占位（对齐左块那几条 bar 的高度）+ 右半键位。
+     * 单独建、不复用 buildInputView —— 顶栏/候选栏只能有一份（字段指向它们），建两份会互相覆盖。
+     */
+    private fun buildRightPanel(): View {
+        val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        // 分半时「拖动那一行」在右块窗口的最上面（用户要求）
+        root.addView(buildHandleBar())
+        val sp = View(this)
+        rightSpacerView = sp
+        root.addView(sp, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0))
+        val kv = KeyboardView(this).apply {
+            onKey = { action -> onKeyAction(action) }
+            isComposing = { composition.isNotEmpty() }
+            half = 1
+            backgroundAlphaPercent = if (floatingNow) HeximeSettings.floatAlphaPercent(context) else 100
+        }
+        keyboardViewRight = kv
+        applyStateTo(kv)
+        root.addView(kv)
+        root.alpha = if (floatingNow) floatAlpha() else 1f
+        return root
+    }
+
+    /**
+     * 是否左右分半（= 两个独立窗口）。
+     * 只有**横屏悬浮**才分半：竖屏悬浮保持原来那一整块布局（用户要求）。
+     */
+    private fun splitActive(): Boolean = floatingNow && isLandscape()
+
+    /**
+     * 关键一步（仅横屏分半时）：左右两块是**两个独立 overlay 窗口**，中间那一大条没有窗口覆盖 →
+     * 空档处的手势直接落到下面的 app。（单窗口做不到：窗口矩形内的透明区域照样吃触摸。）
+     * 竖屏悬浮 = 一个窗口一整块，和以前一样。
+     */
+    private fun showOverlayKeyboard() {
+        if (overlayLp != null) return
+        if (!overlayAllowed()) {
+            Log.w(TAG, "没有 SYSTEM_ALERT_WINDOW，键盘只能留在 IME 窗口里")
+            return
+        }
+        val w = wm() ?: return
+        try {
+            val split = splitActive()
+            // 分半时左块不含把手条（那一行搬到右块窗口最上面），竖屏整块时保留
+            if (panelLeft == null) {
+                panelLeft = buildInputView(buildHalf = if (split) 0 else -1, withHandle = !split)
+            }
+            if (split) {
+                if (panelRight == null) panelRight = buildRightPanel()
+            } else {
+                panelRight = null      // 竖屏 = 一整块，没有右块
+                rightSpacerView = null
+                keyboardViewRight = null
+            }
+            val left = panelLeft ?: return
+            val screenW = screenWidthPx()
+            val totalW = (screenW * overlayWidthFraction()).toInt()
+            val blockW = if (split) {
+                (totalW * splitBlockFraction()).toInt().coerceAtLeast(dp(96))
+            } else {
+                totalW
+            }
+            val x0 = ((screenW - totalW) / 2).coerceAtLeast(0)
+            val y = (screenHeightPx() * 0.4f).toInt()
+            val lp = WindowManager.LayoutParams(
+                blockW,
+                WindowManager.LayoutParams.WRAP_CONTENT,
+                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+                    or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
+                    or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+                PixelFormat.TRANSLUCENT,
+            ).apply {
+                gravity = Gravity.TOP or Gravity.START
+                x = x0
+                this.y = y
+            }
+            w.addView(left, lp)
+            overlayLp = lp
+            lpRight = null
+            if (split) {
+                val right = panelRight ?: return
+                val rp = WindowManager.LayoutParams(
+                    blockW,
+                    WindowManager.LayoutParams.WRAP_CONTENT,
+                    WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                    WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+                        or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
+                        or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+                    PixelFormat.TRANSLUCENT,
+                ).apply {
+                    gravity = Gravity.TOP or Gravity.START
+                    x = x0 + totalW - blockW
+                    this.y = y
+                }
+                w.addView(right, rp)
+                lpRight = rp
+            }
+            userMovedOverlay = false
+            val listener = View.OnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> onPanelsLayout() }
+            left.addOnLayoutChangeListener(listener)
+            panelRight?.addOnLayoutChangeListener(listener)
+            overlayLayoutListeners.clear()
+            overlayLayoutListeners.add(left to listener)
+            panelRight?.let { overlayLayoutListeners.add(it to listener) }
+            if (split) {
+                Log.i(TAG, "悬浮键盘挂载(横屏分半): L=(${lp.x},${lp.y},w=${lp.width}) R=(${lpRight?.x},${lpRight?.y},w=${lpRight?.width}) 中间空档 x=${x0 + blockW}..${lpRight?.x} 无窗口")
+            } else {
+                Log.i(TAG, "悬浮键盘挂载(竖屏整块): x=${lp.x} y=${lp.y} w=${lp.width}")
+            }
+            onPanelsLayout()
+            probeLog(probeState("overlayMounted"))
+        } catch (t: Throwable) {
+            Log.e(TAG, "overlay 挂载失败", t)
+            overlayLp = null
+            lpRight = null
+        }
+    }
+
+    /** 贴底；横屏分半时右块顶部占位高度 = 左块键区顶边（= 那几条 bar 的总高），让两侧键行对齐。 */
+    private fun onPanelsLayout() {
+        val left = panelLeft ?: return
+        val right = panelRight
+        val w = wm() ?: return
+        try {
+            if (right != null) {
+                // 左块键区顶边 = 顶栏 + 候选栏 的总高；右块上面只有把手条 → 占位补差，两侧键行才对齐
+                val kvTop = keyboardView?.top ?: 0
+                val handleH = (right as? android.view.ViewGroup)?.getChildAt(0)?.height ?: 0
+                val want = (kvTop - handleH).coerceAtLeast(0)
+                val sp = rightSpacerView
+                if (want > 0 && sp != null && sp.layoutParams?.height != want) {
+                    sp.layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, want)
+                }
+            }
+            if (userMovedOverlay) return
+            val h = left.height
+            if (h <= 0) return
+            val target = (screenHeightPx() - h - maxOf(navBottomPx(), dp(8))).coerceAtLeast(0)
+            var moved = false
+            overlayLp?.let { if (it.y != target) { it.y = target; w.updateViewLayout(left, it); moved = true } }
+            if (right != null) {
+                lpRight?.let { if (it.y != target) { it.y = target; w.updateViewLayout(right, it); moved = true } }
+            }
+            if (moved) {
+                probeLog("panels: leftH=$h -> y=$target rightH=${right?.height ?: -1}")
+                refreshHandleText()
+            }
+        } catch (t: Throwable) {
+            Log.e(TAG, "面板贴底/对齐失败", t)
+        }
+    }
+
+    private fun hideOverlayKeyboard() {
+        for ((v, l) in overlayLayoutListeners) {
+            try {
+                v.removeOnLayoutChangeListener(l)
+            } catch (t: Throwable) {
+                // 视图已 detach 也无所谓
+            }
+        }
+        overlayLayoutListeners.clear()
+        val w = wm()
+        for (v in listOfNotNull(panelLeft, panelRight)) {
+            try {
+                if (v.parent != null) w?.removeViewImmediate(v)
+            } catch (t: Throwable) {
+                Log.e(TAG, "overlay remove 失败", t)
+            }
+        }
+        overlayLp = null
+        lpRight = null
+    }
+
+    private fun probePrefs() = getSharedPreferences("float_probe", MODE_PRIVATE)
+
+    /**
+     * 悬浮 ⇄ 停靠（正常贴底键盘）。
+     * 同一份面板视图在两个窗口之间搬运、不重建 —— 键盘布局、配色、候选状态都不丢。
+     */
+    private fun setFloating(on: Boolean, remember: Boolean = true) {
+        val want = on && overlayAllowed()
+        if (want == floatingNow && (want == (overlayLp != null))) {
+            refreshHandleText()
+            return
+        }
+        floatingNow = want
+        probeLog(probeState("setFloating want=$want"))
+        if (remember) probePrefs().edit().putBoolean(floatingPrefKey(), want).apply()
+        syncKeyboardMode()
+        if (want) {
+            usePanelAsOverlay()
+        } else {
+            usePanelAsInputView()
+        }
+        syncWindowLayout()
+        for (pg in listOfNotNull(panelLeft, panelDocked)) pg.alpha = if (want) floatAlpha() else 1f
+        refreshHandleText()
+        Log.i(TAG, "键盘形态 = ${if (want) "悬浮(overlay)" else "停靠(贴底 IME 窗口)"}")
+    }
+
+    /**
+     * 让 IME 窗口尺寸与当前形态对齐：悬浮 = 1px（app 不预留空间），停靠 = WRAP_CONTENT（正常键盘）。
+     * 切换那一刻窗口可能还没建好，所以每次弹键盘（onStartInputView）都要再同步一次。
+     */
+    private fun syncWindowLayout() {
+        val win = try {
+            window?.window
+        } catch (t: Throwable) {
+            null
+        } ?: return
+        try {
+            if (floatingNow && overlayAllowed()) {
+                win.setLayout(WindowManager.LayoutParams.MATCH_PARENT, 1)
+            } else {
+                win.setLayout(WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.WRAP_CONTENT)
+            }
+        } catch (t: Throwable) {
+            Log.e(TAG, "同步 IME 窗口尺寸失败", t)
+        }
+    }
+
+    /** 把视图从它当前的父亲那里摘下来。 */
+    private fun detachView(view: View?) {
+        val p = view?.parent
+        if (p is android.view.ViewGroup) {
+            try {
+                p.removeView(view)
+            } catch (t: Throwable) {
+                Log.e(TAG, "detachView 失败", t)
+            }
+        }
+    }
+
+    /** 面板挪进 overlay 窗口（悬浮）。 */
+    /** 切到悬浮：丢掉停靠面板 → 按当前形态重建左右两块 → 挂两个 overlay 窗口。 */
+    private fun usePanelAsOverlay() {
+        try {
+            if (overlayLp != null && panelLeft != null && panelRight != null) return
+            dropPanels()
+            val ph = placeholder()
+            detachView(ph)
+            setInputView(ph)
+            panelInImeWindow = false
+            showOverlayKeyboard()
+        } catch (t: Throwable) {
+            // 切不过去就维持原样，绝不能让 IME 进程崩
+            Log.e(TAG, "转悬浮失败（保持原样）", t)
+        }
+    }
+
+    /** 切到停靠：摘掉两个窗口 → 重建整块面板交给 IME 窗口（贴底正常占位）。 */
+    private fun usePanelAsInputView() {
+        try {
+            dropPanels()
+            val panel = buildInputView(buildHalf = -1)
+            panelDocked = panel
+            detachView(panel)
+            // 刚从 overlay 摘下来的面板 layoutParams 是 WindowManager.LayoutParams，
+            // 交给 IME 窗口里的 FrameLayout 会当 MarginLayoutParams 强转 → ClassCastException
+            panel.layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+            )
+            setInputView(panel)
+            panelInImeWindow = true
+        } catch (t: Throwable) {
+            Log.e(TAG, "转停靠失败（保持原样）", t)
+        }
+    }
+
+    private fun placeholder(): View {
+        val cur = placeholderView
+        if (cur != null) return cur
+        val v = View(this).apply { minimumHeight = 1 }
+        placeholderView = v
+        return v
+    }
+
+    private fun refreshHandleText() {
+        val v = handleView ?: return
+        val lp = overlayLp
+        val txt = if (floatingNow && lp != null) {
+            "⠿ 按住拖动   x=${lp.x} y=${lp.y} w=${lp.width}"
+        } else if (floatingNow) {
+            "⠿ 按住拖动"
+        } else {
+            "⠿ 已停靠贴底 · 拖住可再浮起"
+        }
+        if (txt != handleText) {
+            handleText = txt
+            v.text = txt
+        }
+        dockView?.text = if (floatingNow) "⇲ 停靠" else "⤢ 悬浮"
     }
 
     // ---------------------------------------------------------------- 生命周期
 
     override fun onCreateInputView(): View = try {
-        buildInputView()
+        // 旋转/重弹键盘时 AOSP 会走 initViews() 重建窗口视图层级：mInputView 置空、旧 frame 被丢弃。
+        // 此时上一份面板可能还挂在旧 frame 或 overlay 上，带父亲的视图交给 setInputView 会直接抛
+        // 「child already has a parent」→ 进程反复重启、键盘消失。
+        // 所以：先把旧 overlay 摘掉 → 再建新面板 → 返回前把占位视图也 detach 一次。
+        dropPanels()
+        floatingNow = floatingNow && overlayAllowed()
+        probeLog(probeState("onCreateInputView"))
+        if (floatingNow) {
+            // 悬浮：IME 窗口只留 1px 占位，键盘画面在左右两个 overlay 窗口里
+            val ph = placeholder()
+            detachView(ph)
+            // 占位视图也可能带着上一轮窗口的 LayoutParams（window/overlay 都会改视图的 layoutParams）
+            ph.layoutParams = FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, 1)
+            panelInImeWindow = false
+            // 这条 AOSP 路径不一定会回调 onStartInputView，这里补挂 overlay（幂等）
+            main.post {
+                if (floatingNow && overlayLp == null) showOverlayKeyboard()
+                syncWindowLayout()
+            }
+            ph
+        } else {
+            // 停靠：整块面板当 IME 窗口的 input view
+            val panel = buildInputView(buildHalf = -1)
+            panelDocked = panel
+            panelInImeWindow = true
+            panel
+        }
     } catch (t: Throwable) {
         // 输入法视图建失败也**不能崩**：崩了就是进程反复重启、键盘永远弹不出来（用户看到「打不开」）。
         // 退回一个能看懂的提示，顺便把错误带出来，方便定位。
@@ -155,14 +741,115 @@ class HeximeService : InputMethodService() {
         }
     }
 
-    private fun buildInputView(): View {
+    /**
+     * 把手条：左 = 拖动区（按住拖整个键盘，两个窗口一起动）；右 = 「停靠/悬浮」+「收起键盘」。
+     * 悬浮分半（横屏）时这一条挂在**右块窗口的最上面**，左块只剩顶栏 + 候选栏 + 左半键位。
+     */
+    private fun buildHandleBar(): View {
+        val handle = TextView(this).apply {
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
+            setTextColor(Color.WHITE)
+            setBackgroundColor(0xCC222222.toInt())
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(10), dp(6), dp(10), dp(6))
+            text = "⠿ 按住拖动"
+            // 拖动时会显示坐标读数，也必须单行：换行会把这一条撑高（右块窗口跟着变高）
+            maxLines = 1
+            isSingleLine = true
+            ellipsize = android.text.TextUtils.TruncateAt.END
+        }
+        handleView = handle
+        handleText = ""
+        handle.setOnTouchListener { _, e ->
+            val lp = overlayLp
+            val w = wm()
+            if (lp == null || w == null) {
+                false
+            } else {
+                when (e.actionMasked) {
+                    MotionEvent.ACTION_DOWN -> {
+                        dragStartRawX = e.rawX
+                        dragStartRawY = e.rawY
+                        dragStartX = lp.x
+                        dragStartY = lp.y
+                        dragStartRightX = lpRight?.x ?: lp.x
+                        dragStartRightY = lpRight?.y ?: lp.y
+                        true
+                    }
+                    MotionEvent.ACTION_MOVE -> {
+                        val dx = (e.rawX - dragStartRawX).toInt()
+                        val dy = (e.rawY - dragStartRawY).toInt()
+                        userMovedOverlay = true      // 手动摆过位置后不再自动贴底
+                        lp.x = dragStartX + dx
+                        lp.y = dragStartY + dy
+                        panelLeft?.let { w.updateViewLayout(it, lp) }
+                        lpRight?.let { rp ->
+                            rp.x = dragStartRightX + dx
+                            rp.y = dragStartRightY + dy
+                            panelRight?.let { w.updateViewLayout(it, rp) }
+                        }
+                        refreshHandleText()
+                        true
+                    }
+                    MotionEvent.ACTION_UP -> true
+                    MotionEvent.ACTION_CANCEL -> true
+                    else -> false
+                }
+            }
+        }
+        val dock = TextView(this).apply {
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
+            setTextColor(Color.WHITE)
+            setBackgroundColor(0xCC35506B.toInt())
+            gravity = Gravity.CENTER
+            setPadding(dp(12), dp(6), dp(12), dp(6))
+            text = "⇲ 停靠"
+            isClickable = true
+            setOnClickListener { setFloating(!floatingNow) }
+        }
+        dockView = dock
+        val hide = TextView(this).apply {
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
+            setTextColor(Color.WHITE)
+            setBackgroundColor(0xCC5A3030.toInt())
+            gravity = Gravity.CENTER
+            setPadding(dp(12), dp(6), dp(12), dp(6))
+            text = "⌄ 收起"
+            isClickable = true
+            setOnClickListener { requestHideSelf(0) }
+        }
+        val bar = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        bar.addView(handle, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f))
+        bar.addView(dock, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.MATCH_PARENT
+        ).apply { marginStart = dp(2) })
+        bar.addView(hide, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.MATCH_PARENT
+        ).apply { marginStart = dp(2) })
+        return bar
+    }
+
+    /**
+     * 新面板 = 一批全新的 TextView，但「文本没变就不 setText」的缓存还在 → 新视图上什么都不写。
+     * 典型症状：切形态/转屏重建后**方案名一直是空的**（用户：「方案显示怎么老是消失」）。
+     * 每次建面板前把缓存清掉。
+     */
+    private fun resetViewTextCaches() {
+        lastCodeText = ""
+        lastStatusText = ""
+        lastStatusSchema = ""
+        lastStatusAscii = !asciiMode      // 故意与当前值相反，保证下面一定会重写
+        lastStatusLatency = -1.0
+    }
+
+    private fun buildInputView(buildHalf: Int = -1, withHandle: Boolean = true): View {
         val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         val palette = currentPalette()
+        resetViewTextCaches()
 
         // 顶部两段：左边「编码」（打字时的组合串，大字号），右边状态（方案/中英/版本/跟手）
-        val topBar = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
+        // 顶栏容器：FrameLayout —— 三段式（左组「中/英+编码」/ 正中「方案名」/ 右组「＋词+配色」）
+        val topBar = FrameLayout(this).apply {
             setBackgroundColor(palette.candidateBg)
         }
         // 中/英 状态标识：点一下切换（和空格长按同一个开关）
@@ -179,13 +866,20 @@ class HeximeService : InputMethodService() {
             setTextColor(palette.candidateText)
             setPadding(dp(10), dp(1), dp(10), dp(1))
             maxLines = 1
+            isSingleLine = true
+            ellipsize = android.text.TextUtils.TruncateAt.END
         }
         codeView = code
         val status = TextView(this).apply {
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
             setTextColor(palette.candidateComment)
             setPadding(dp(10), dp(1), dp(10), dp(1))
-            gravity = Gravity.END
+            gravity = Gravity.CENTER
+            // 必须单行 + 省略号：这行文本一变长就会自动换行、把顶栏撑高 →
+            // 面板高度跟着变 → 悬浮窗口重新贴底 = 用户看到的「第一次打字又重绘一次」。
+            maxLines = 1
+            isSingleLine = true
+            ellipsize = android.text.TextUtils.TruncateAt.END
             // 点状态栏上的方案名 = 切换方案（和选单里的「方案」键一样循环）。
             // 「跟手延迟」显示改到设置页的开关控制。
             isClickable = true
@@ -217,15 +911,45 @@ class HeximeService : InputMethodService() {
         }
         paletteView = paletteBtn
         topBarView = topBar
-        topBar.addView(modeChip)
-        topBar.addView(code, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
-        topBar.addView(addWord)
-        topBar.addView(paletteBtn)
+        // 布局（用户要求）：中/英 + 编码 靠左 · 「方案名」（切方案快捷键）**正中间** · ＋词 + 配色 靠右。
+        // 用 FrameLayout 才能真居中：LinearLayout 里居中会被左右两组的宽度带偏。
+        // 各组都限宽（maxWidth），窄块（横屏分半时只有 0.227 屏宽）下也不会互相压住。
+        val panelW = (screenWidthPx() * overlayWidthFraction() *
+            (if (splitActive()) splitBlockFraction() else 1f)).toInt()
+        code.maxWidth = (panelW * 0.22f).toInt()
+        status.maxWidth = (panelW * 0.34f).toInt()
+        val topLeft = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        topLeft.addView(modeChip)
+        topLeft.addView(code)
+        val topRight = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        topRight.addView(addWord)
+        topRight.addView(paletteBtn)
+        topBar.addView(
+            topLeft,
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+            ).apply { gravity = Gravity.START or Gravity.CENTER_VERTICAL },
+        )
         topBar.addView(
             status,
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT,
-            ),
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+            ).apply { gravity = Gravity.CENTER },
+        )
+        topBar.addView(
+            topRight,
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+            ).apply { gravity = Gravity.END or Gravity.CENTER_VERTICAL },
         )
         candidateBar = CandidateBar(this).apply {
             onSelect = { index -> onSelectCandidate(index) }
@@ -236,18 +960,32 @@ class HeximeService : InputMethodService() {
                 onKeyAction(KeyAction.Named(if (dir < 0) "Page_Up" else "Page_Down"))
             }
         }
-        keyboardView = KeyboardView(this).apply {
+        val kv = KeyboardView(this).apply {
             onKey = { action -> onKeyAction(action) }
             // 小鹤的 `.` 键：组合中 = 次选第 2 候选
             isComposing = { composition.isNotEmpty() }
+            heightDp = effectiveKeyboardHeightDp()
+            half = buildHalf
+            // 悬浮时键盘底色按「悬浮键盘透明度」调 alpha —— 色值仍是本配色的 keyboardBg，
+            // 只是变半透明（所有配色一致；不是把底色去掉）
+            backgroundAlphaPercent = if (floatingNow) HeximeSettings.floatAlphaPercent(context) else 100
         }
+        keyboardView = kv
+        applyStateTo(kv)
 
+
+        if (withHandle) root.addView(buildHandleBar())
         root.addView(topBar)
-        root.addView(candidateBar)
-        root.addView(keyboardView)
+        // 候选栏高度写死：内容多少都不许改行高（否则面板高度变 → 悬浮窗口重排 = 打字时抖一下）
+        root.addView(candidateBar, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, dp(30)))
+        root.addView(kv)
+        // 半透明：窗口已设成 TRANSLUCENT，悬浮时把整个面板调半透明（停靠态恢复不透明）
+        root.alpha = if (floatingNow) floatAlpha() else 1f
         // 记住这次视图用的高度/配色，免得 onStartInputView 又重建一遍
-        appliedKeyHeight = HeximeSettings.keyboardHeightDp(this)
+        appliedKeyHeight = effectiveKeyboardHeightDp()
         appliedPaletteId = HeximeSettings.paletteId(this)
+        appliedFloatAlpha = HeximeSettings.floatAlphaPercent(this)
         refreshSettingsCache()
         // 设置页里改了方案 → 回到键盘时跟上（当前会话还在用旧方案的话）
         val wantedSchema = HeximeSettings.schemaId(this)
@@ -270,16 +1008,21 @@ class HeximeService : InputMethodService() {
 
     /** 当前已应用的配色 id。 */
     private var appliedPaletteId = ""
+    /** 上次建视图时用的悬浮透明度（设置里改了要重建，否则要等下次弹键盘才生效）。 */
+    private var appliedFloatAlpha = -1
 
     override fun onStartInputView(info: EditorInfo?, restarting: Boolean) {
         super.onStartInputView(info, restarting)
         // 设置里改了键盘高度/配色则重建输入视图
         refreshSettingsCache()
-        val height = HeximeSettings.keyboardHeightDp(this)
+        val height = effectiveKeyboardHeightDp()
         val paletteId = HeximeSettings.paletteId(this)
-        if (height != appliedKeyHeight || paletteId != appliedPaletteId) {
+        val alphaPct = HeximeSettings.floatAlphaPercent(this)
+        if (height != appliedKeyHeight || paletteId != appliedPaletteId || alphaPct != appliedFloatAlpha) {
             appliedKeyHeight = height
             appliedPaletteId = paletteId
+            appliedFloatAlpha = alphaPct
+            hideOverlayKeyboard()          // 旧面板要先从 overlay 摘掉，否则会重复挂载
             setInputView(onCreateInputView())
         }
         // 设置里改了方案 → 跟上（当前会话还在用旧方案的话）
@@ -289,6 +1032,25 @@ class HeximeService : InputMethodService() {
         // 设置页里「下载」过词表 → 重启引擎把新词读进来（stabledb 打开即缓存，必须重启）
         if (ready && SyncPrefs.consumePhraseReload(this)) reloadEngine()
         refresh()
+        // 横屏悬浮 = 左右分半；再把面板挂到 overlay（IME 窗口只留 1px，app 不预留空间）
+        inputShown = true
+        syncKeyboardMode()
+        setFloating(floatingNow, remember = false)
+        // 停靠态若窗口还是上一轮的 1px，会把整块面板裁成一条 —— 每次弹键盘都对齐一次
+        syncWindowLayout()
+        probeLog(probeState("onStartInputView"))
+    }
+
+    override fun onFinishInputView(finishingInput: Boolean) {
+        inputShown = false
+        hideOverlayKeyboard()
+        super.onFinishInputView(finishingInput)
+    }
+
+    override fun onWindowHidden() {
+        inputShown = false
+        hideOverlayKeyboard()
+        super.onWindowHidden()
     }
 
     override fun onFinishInput() {
@@ -299,6 +1061,7 @@ class HeximeService : InputMethodService() {
     }
 
     override fun onDestroy() {
+        hideOverlayKeyboard()
         addWordDialog?.dismiss()
         addWordDialog = null
         engine.shutdown()
@@ -385,7 +1148,7 @@ class HeximeService : InputMethodService() {
             is KeyAction.Ctrl -> onCtrlKey(action.ch)
             is KeyAction.Text -> sendKeyMacro(action.text)
             is KeyAction.Kb -> {
-                keyboardView?.showKeyboard(action.id)
+                onKeyboards { it.showKeyboard(action.id) }
                 syncAsciiFromKeyboard()
             }
             is KeyAction.Toggle -> onToggle(action.option)
@@ -401,7 +1164,7 @@ class HeximeService : InputMethodService() {
         // 一次性 shift 用完就撤；长按锁定的不动
         if (action is KeyAction.Sym && shiftOn && !shiftLock) {
             shiftOn = false
-            keyboardView?.setShift(false)
+            onKeyboards { it.setShift(false) }
         }
         refresh()
         measureLatency(t0)
@@ -429,14 +1192,14 @@ class HeximeService : InputMethodService() {
                 } else {
                     shiftOn = !shiftOn
                 }
-                keyboardView?.setShift(shiftOn)
+                onKeyboards { it.setShift(shiftOn) }
                 return
             }
             // 长按 Shift = 按住（锁定），再点/再长按一次解除
             "Shift_Lock" -> {
                 shiftLock = !shiftLock
                 shiftOn = shiftLock
-                keyboardView?.setShift(shiftOn)
+                onKeyboards { it.setShift(shiftOn) }
                 return
             }
             "copy" -> contextAction(android.R.id.copy)
@@ -551,7 +1314,7 @@ class HeximeService : InputMethodService() {
         // 键盘按方案各记一份，切回来就还原。
         // **不要**硬塞某个键盘（原来切回音形强制 defaultVJ，键面是 丶丨 这类字根，
         // 用户看到的就是「切回小鹤键盘变成笔画了」）。
-        keyboardPerSchema[id]?.let { keyboardView?.showKeyboard(it) }
+        keyboardPerSchema[id]?.let { id2 -> onKeyboards { it.showKeyboard(id2) } }
         flashStatus("方案：${Schemas.label(id)}（重载中…）")
         reloadEngine()
     }
@@ -560,7 +1323,7 @@ class HeximeService : InputMethodService() {
     private fun toggleAsciiMode() {
         asciiMode = !asciiMode
         engine.setOption("ascii_mode", asciiMode)
-        keyboardView?.setAscii(asciiMode)
+        onKeyboards { it.setAscii(asciiMode) }
         updateModeChip()
         updateStatus()
     }
@@ -610,10 +1373,11 @@ class HeximeService : InputMethodService() {
                     else -> HeximeSettings.KEYBOARD_HEIGHT_DEFAULT
                 }
                 HeximeSettings.setKeyboardHeightDp(this, next)
-                appliedKeyHeight = HeximeSettings.keyboardHeightDp(this)
+                appliedKeyHeight = effectiveKeyboardHeightDp()
                 // 就地重建：不重建整个输入视图，键盘页/ascii 状态都保留
-                keyboardView?.applyTheme(currentPalette(), appliedKeyHeight)
-                flashStatus("键盘高度 ${appliedKeyHeight}dp")
+                onKeyboards { it.heightDp = appliedKeyHeight }
+                onKeyboards { it.applyTheme(currentPalette(), appliedKeyHeight) }
+                flashStatus("键盘高度 $appliedKeyHeight dp")
             }
             "palette" -> showPalettePicker()
             "schema" -> applySchema(Schemas.next(engine.currentSchema()))
@@ -672,7 +1436,7 @@ class HeximeService : InputMethodService() {
 
     /** 换配色：键盘/候选栏/顶栏/编码行/状态栏一起换，不用重建输入视图。 */
     private fun applyPalette(palette: Palette) {
-        keyboardView?.applyTheme(palette, HeximeSettings.keyboardHeightDp(this))
+        onKeyboards { it.applyTheme(palette, effectiveKeyboardHeightDp()) }
         candidateBar?.applyPalette(palette)
         topBarView?.setBackgroundColor(palette.candidateBg)
         updateModeChip()
@@ -692,9 +1456,8 @@ class HeximeService : InputMethodService() {
             applyPalette(p)
             bar.clearPicker()
             refresh()
-            flashStatus("配色　${p.name}")
         }
-        flashStatus("选配色")
+        // 不 flash「选配色」/「配色 xxx」：那两句会占用「编码」格，和顶栏三段式打架（用户要求去掉）
     }
 
     // ---------------------------------------------------------------- 加词
