@@ -1,6 +1,9 @@
 package com.hexime.ime.ui
 
 import android.content.Context
+import android.text.SpannableString
+import android.text.Spanned
+import android.text.style.RelativeSizeSpan
 import android.util.TypedValue
 import android.view.Gravity
 import android.widget.HorizontalScrollView
@@ -16,6 +19,9 @@ import com.hexime.ime.engine.Candidate
  * `Page_Down = {label = "▽", send = "Page_Down"}` / `Page_Up = {label = "△", ...}`，
  * openfly 的 key_binder 也显式接住了这两个键（本方案没 import default 预设，
  * 不自己绑的话 `-`/`=` 那套翻页不生效）。候选超过一页时才显示。
+ *
+ * 候选带注释（librime 的 `RimeCandidate.comment`）时把注释画在候选后面、小一号字：
+ * 反查时那就是这个字的编码（`人 rfp`），拼音方案里是拼音（`好 hao`）。
  */
 class CandidateBar(context: Context) : LinearLayout(context) {
 
@@ -139,6 +145,9 @@ class CandidateBar(context: Context) : LinearLayout(context) {
     /** 上一次的候选列表：内容没变就完全不碰 UI。 */
     private var lastCandidates: List<Candidate> = emptyList()
 
+    /** 候选文字后面是否跟小号注释（反查编码 / 拼音）。默认开。 */
+    private val showComment = HeximeSettings.showCandidateComment(context)
+
     fun setCandidates(candidates: List<Candidate>) {
         if (pickerCallback != null) return
         // 组合串每变一次候选就变一次；同一份候选（翻页边界/重复刷新）不要重排 UI
@@ -164,7 +173,7 @@ class CandidateBar(context: Context) : LinearLayout(context) {
             }
             val candidate = candidates[index]
             tv.visibility = VISIBLE
-            tv.text = if (index < 9) "${index + 1} ${candidate.text}" else candidate.text
+            tv.text = candidateLabel(index, candidate)
             tv.setTextColor(palette.candidateText)
             tv.setOnClickListener { onSelect?.invoke(index) }
             // 长按 = 加词窗口（预填该候选词）
@@ -174,6 +183,29 @@ class CandidateBar(context: Context) : LinearLayout(context) {
             }
         }
         scroll.scrollTo(0, 0)
+    }
+
+    /**
+     * 候选的显示文字：`序号 词`，后面跟一小号注释（反查编码 / 拼音）。
+     *
+     * 用 SpannableString 而不是拼接成两段的 TextView：候选是点击/长按单位，
+     * 拆成两个 View 后要保证整条都能点、且不能把 `候选 == lastCandidates` 的复用判断弄乱。
+     * 颜色不单独设：同一个 TextView 没法按 span 上色又跟着配色刷新，
+     * 靠「小一号 + 前面一个空格」区隔就够了（拼音方案的拼音注释也一同受益）。
+     */
+    private fun candidateLabel(index: Int, candidate: Candidate): CharSequence {
+        val head = if (index < 9) "${index + 1} ${candidate.text}" else candidate.text
+        val comment = candidate.comment
+        if (!showComment || comment.isEmpty()) return head
+        val text = "$head $comment"
+        return SpannableString(text).apply {
+            setSpan(
+                RelativeSizeSpan(0.6f),
+                head.length + 1,
+                text.length,
+                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE,
+            )
+        }
     }
 
     fun clear() {

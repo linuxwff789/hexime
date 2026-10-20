@@ -1,6 +1,12 @@
 package com.hexime.ime.engine
 
-/** 单个候选词。comment 是 librime 给出的注释（如拼音、提示）。 */
+/** 单个候选词。comment 是 librime 给出的注释（反查的编码、拼音、提示等）。
+ *
+ * **反查的编码就在 comment 里**：原生层只给 text + comment，没有「码」这个字段——
+ * 反查用的是 openfly_reverse 词库，`人\trfp` 的编码在词库里，和候选字一起变成 librime 的
+ * 候选条目（text=人，code=rfp），而编码本身不会作为字段出来。唯一能从 librime 拿到的
+ * 是 comment（`reverse_lookup_translator` 会去该字典的反向索引里把这个字的所有码取出来，
+ * 以空格分隔后填进 comment；见 librime src/rime/gear/reverse_lookup_translator.cc）。 */
 data class Candidate(val text: String, val comment: String = "")
 
 /** 一次按键后的引擎状态快照。 */

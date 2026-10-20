@@ -56,10 +56,11 @@ class RimeEngine : InputEngine {
     override fun snapshot(): EngineSnapshot {
         if (sessionId == 0L) return EngineSnapshot()
         // 一次 JNI：[0] 组合串 [1] 页码 [2] 是否末页 [3..] 候选（原来要 composition/candidates/pageInfo 三次往返）
+        // 候选元素格式 "text\tcomment"，comment 为空时就是 "text"。
         val raw = RimeNative.snapshot(sessionId)
         if (raw.size < 3) return EngineSnapshot()
         val candidates = ArrayList<Candidate>(raw.size - 3)
-        for (i in 3 until raw.size) candidates.add(Candidate(raw[i]))
+        for (i in 3 until raw.size) candidates.add(parseCandidate(raw[i]))
         return EngineSnapshot(
             composition = raw[0],
             candidates = candidates,
@@ -104,5 +105,11 @@ class RimeEngine : InputEngine {
 
     private companion object {
         const val TAG = "HeximeEngine"
+
+        /** "text\tcomment" -> Candidate（没有 comment 时 indexOf 返回 -1，直接整串当 text）。 */
+        fun parseCandidate(item: String): Candidate {
+            val tab = item.indexOf('\t')
+            return if (tab < 0) Candidate(item) else Candidate(item.substring(0, tab), item.substring(tab + 1))
+        }
     }
 }

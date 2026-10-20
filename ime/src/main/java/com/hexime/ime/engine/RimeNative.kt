@@ -39,7 +39,7 @@ object RimeNative {
 
     /**
      * 一次拿齐按键后要刷新的全部状态（省两次 JNI 往返）：
-     * `[0]` 组合串，`[1]` 页码，`[2]` 是否末页("1"/"0")，`[3..]` 候选文字。
+     * `[0]` 组合串，`[1]` 页码，`[2]` 是否末页("1"/"0")，`[3..]` 候选（格式 "text\tcomment"）。
      */
     external fun snapshot(sessionId: Long): Array<String>
 

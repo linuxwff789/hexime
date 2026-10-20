@@ -12,6 +12,7 @@ object HeximeSettings {
     private const val KEY_FLOAT_ALPHA = "float_alpha_percent"
     private const val KEY_PALETTE = "palette_id"
     private const val KEY_SCHEMA = "schema_id"
+    private const val KEY_SHOW_CANDIDATE_COMMENT = "show_candidate_comment"
 
     /** 震动强度百分比 0..100，0 = 关闭。 */
     const val VIBRATION_DEFAULT = 30
@@ -100,4 +101,17 @@ object HeximeSettings {
 
     /** 默认配色（与 HeximePalettes.DEFAULT_ID 一致，这里写字面量避免 data 层依赖 ui 层）。 */
     const val PALETTE_DEFAULT = "小鹤"
+
+    /**
+     * 候选栏是否在候选字后面跟一小号注释（反查的编码、拼音）。
+     *
+     * 默认**开**：反查（打全码 + 反引号）就是看编码用的，只出字等于白查。
+     * 没有改成开关界面的入口（设置页没这个项），但存成偏好方便以后接上。
+     */
+    fun showCandidateComment(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_SHOW_CANDIDATE_COMMENT, true)
+
+    fun setShowCandidateComment(context: Context, value: Boolean) {
+        prefs(context).edit().putBoolean(KEY_SHOW_CANDIDATE_COMMENT, value).apply()
+    }
 }

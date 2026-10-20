@@ -222,7 +222,10 @@ Java_com_hexime_ime_engine_RimeNative_candidates(JNIEnv* env, jobject, jlong sid
 JNIEXPORT jobjectArray JNICALL
 Java_com_hexime_ime_engine_RimeNative_snapshot(JNIEnv* env, jobject, jlong sid) {
   // 一次 JNI 拿齐按键后要刷新的全部状态（原来是 composition/candidates/pageInfo 三次往返）：
-  //   [0] 组合串  [1] 页码  [2] 是否末页("1"/"0")  [3..] 候选文字
+  //   [0] 组合串  [1] 页码  [2] 是否末页("1"/"0")  [3..] 候选（"text\tcomment"，无 comment 时就是 "text"）
+  // comment 必须带上：反查的编码就是 reverse_lookup_translator 填在这一项里的，
+  // 不带的话候选栏只能显示字、看不到码。常规输入时 comment 为空串、不拼 '\t'，
+  // 多出来的开销只是 String 末尾可能多几个字节。
   RimeApi* rime = api();
   std::vector<std::string> out;
   if (rime != nullptr) {
@@ -233,8 +236,12 @@ Java_com_hexime_ime_engine_RimeNative_snapshot(JNIEnv* env, jobject, jlong sid) 
       out.emplace_back(ctx.menu.is_last_page ? "1" : "0");
       for (int i = 0; i < ctx.menu.num_candidates; ++i) {
         const RimeCandidate& c = ctx.menu.candidates[i];
-        // 只要 text：comment 界面不用，省一次拼接 + 一个 Java String
-        out.emplace_back(c.text ? c.text : "");
+        std::string item = c.text ? c.text : "";
+        if (c.comment && c.comment[0] != '\0') {
+          item += '\t';
+          item += c.comment;
+        }
+        out.push_back(std::move(item));
       }
       rime->free_context(&ctx);
     }
