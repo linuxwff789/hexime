@@ -4,7 +4,7 @@
 引擎直接用 librime（JNI 静态链接 rime-lua / octagram / predict），68 个键盘布局与 12 套配色内置为资源。
 本地优先、低延迟、不联网（除了你自己配的 GitHub 备份）。
 
-**当前版本：1.2** · 最低 Android 10（API 29）
+**当前版本：1.3** · 最低 Android 10（API 29）
 
 ## 安装
 
@@ -33,6 +33,8 @@ APK 见 [Releases](https://github.com/linuxwff789/hexime/releases)。
 - **顶栏**：中/英 + 编码（左）· 方案名（正中，点一下切方案）· ＋词 + 配色（右）；方案名/编码单行省略，任何屏宽都不被裁掉。
 - **反查**：输入全码再打一个反引号（助记键盘上反引号 = 长按 z）。
   正常码表只收「全码首选」，一些字的全码是隐藏的（如 好=hcn、天=tma、人=rfp），平时打不出来，反查就是给它们用的。
+  候选后面用小一号字跟着**编码**（`1 人 rfp`）—— 那是 librime 候选的 comment，反查时由反向索引回填；
+  拼音方案下同一个位置显示拼音。要不要显示由 `HeximeSettings.showCandidateComment` 控制（默认开）。
 - **加词**：空格上滑，或选单「加词」。词条落 `custom_phrase.txt`（方案里的 `custom_phrase` 走 stabledb 直读），重启引擎即生效。
 - **配色**：12 套（孤寺 / 暮暮 / 暗堂等），选单或设置页里选，即时生效。
 - **方案**：openfly 小鹤音形 / rime_ice 雾凇拼音（含英文 melt_eng、部件拆字 radical_pinyin 两个依赖方案）。
@@ -44,7 +46,7 @@ APK 见 [Releases](https://github.com/linuxwff789/hexime/releases)。
 ## 构建
 
 CI：push 到 main（改动 `ime/**` 或 `scripts/**`）触发 [Build IME](.github/workflows/build-ime.yml)，
-约 5 分钟，成功后发 Release（tag `ime-<run_number>`）；推 `v1.0` 这种 tag 则发对应版本号的 Release。
+约 5 分钟，成功后发 Release（tag `ime-<run_number>`）；推 `v1.3` 这种 tag 则发对应版本号的正式 Release（占 Latest）。
 
 本地：
 
